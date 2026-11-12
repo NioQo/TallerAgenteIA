@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ vehicle.plate }}{% endblock %}
+{% block content %}
+    <header class="vehicle-heading">
+      <p class="eyebrow"><a href="{% url 'dashboard' %}">← Volver a vehículos</a></p>
+      <h1 class="page-title">{{ vehicle.plate }}</h1>
+      <p class="page-intro">Historial del vehículo · {{ vehicle.make }} {{ vehicle.model }}</p>
+    </header>
+    <section class="vehicle-facts" aria-label="Datos del vehículo"><dl>
+      <dt>Marca</dt><dd>{{ vehicle.make }}</dd>
+      <dt>Modelo</dt><dd>{{ vehicle.model }}</dd>
+      <dt>Tipo de cliente</dt><dd>{{ vehicle.get_customer_type_display }}</dd>
+      <dt>Cliente</dt><dd>{{ vehicle.customer_name }}</dd>
+      <dt>Teléfono</dt><dd>{{ vehicle.customer_phone }}</dd>
+    </dl></section>
+    <section class="history-section" aria-labelledby="budgets-heading">
+      <h2 id="budgets-heading">Historial de presupuestos</h2>
+      {% for budget in vehicle.budgets.all %}
+        <article class="budget-card">
+          <header class="budget-card-heading"><div><p class="eyebrow">Presupuesto {{ budget.number }}</p><h3>Versión {{ budget.version }}</h3></div>
+          <div class="budget-markers">{% if not budget.next_versions.exists %}<span class="version-badge current-badge">VIGENTE</span>{% else %}<span class="version-badge historical-badge">Histórica</span>{% endif %}<span class="status-badge status-{{ budget.status|slugify }}">{{ budget.get_status_display }}</span></div></header>
+          {% if not budget.next_versions.exists and budget.status == "pendiente" %}
+            <form class="budget-actions" method="post" action="{% url 'decide_budget' budget.pk %}" aria-label="Acciones para {{ budget.number }}">
+              {% csrf_token %}
+              <button type="submit" name="decision" value="aprobado">Marcar como aprobado</button>
+              <button type="submit" name="decision" value="rechazado">Marcar como rechazado</button>
+            </form>
+          {% endif %}
+          {% if not budget.next_versions.exists and budget.status == "aprobado" %}
+            <form class="budget-actions completion-form" method="post" action="{% url 'complete_work' budget.pk %}" aria-label="Cerrar {{ budget.number }}">
+              {% csrf_token %}
+              <h4>Registrar trabajo terminado</h4>
+              <label>Importe final cobrado (ARS)
+                <input type="number" name="final_amount" min="0" step="0.01" required>
+              </label>
+              <p>Repuestos utilizados (podés corregirlos respecto del presupuesto):</p>
+              {% for item in budget.items.all %}
+                <label>Repuesto <input name="item_description" value="{{ item.description }}" maxlength="200"></label>
+                <label>Cantidad <input type="number" name="item_quantity" value="{{ item.quantity }}" min="1" required></label>
+              {% endfor %}
+              <label>Agregar repuesto <input name="item_description" maxlength="200"></label>
+              <label>Cantidad agregada <input type="number" name="item_quantity" min="1"></label>
+              <button type="submit">Cerrar trabajo</button>
+            </form>
+          {% endif %}
+          {% if budget.status == "trabajo terminado" and budget.completed_work %}
+            <section aria-label="Ejecución y cobro">
+              <h4>Ejecución y cobro</h4>
+              <p>Presupuesto aprobado: ARS {{ budget.total|floatformat:2 }}</p>
+              <p>Importe final cobrado: ARS {{ budget.completed_work.final_amount|floatformat:2 }}</p>
+              <p>Fecha de cierre: {{ budget.completed_work.closed_at|date:"d/m/Y H:i" }}</p>
+              <p>Repuestos utilizados:</p>
+              <ul>{% for item in budget.completed_work.items.all %}<li>{{ item.description }} — cantidad {{ item.quantity }}</li>{% empty %}<li>Ninguno</li>{% endfor %}</ul>
+            </section>
+          {% endif %}
+          <div class="budget-details"><p><span>Fecha</span>{{ budget.created_at|date:"d/m/Y H:i" }}</p>
+          <p><span>Trabajo</span>{{ budget.description }}</p></div>
+          <ul class="parts-list">
+            {% for item in budget.items.all %}
+              <li>{{ item.description }}: {{ item.quantity }} × ARS {{ item.unit_price|floatformat:2 }} = ARS {{ item.subtotal|floatformat:2 }}</li>
+            {% endfor %}
+          </ul>
+          <div class="budget-totals"><p>Mano de obra <strong>ARS {{ budget.labor_amount|floatformat:2 }}</strong></p>
+          <p class="budget-total">Total del presupuesto <strong>ARS {{ budget.total|floatformat:2 }}</strong></p></div>
+          {% if budget.pdf %}<p><a class="button button-secondary" href="{% url 'budget_pdf_download' budget.pk %}">Descargar PDF</a></p>{% endif %}
+        </article>
+      {% empty %}
+        <p>Todavía no hay presupuestos.</p>
+      {% endfor %}
+    </section>
+{% endblock %}

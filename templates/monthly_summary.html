@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Resumen mensual{% endblock %}
+{% block content %}
+  <div class="summary-heading">
+    <div>
+      <p class="eyebrow">Administración</p>
+      <h1 class="page-title">Resumen mensual de cobros</h1>
+      <p class="page-intro">Consulta los trabajos terminados y los importes efectivamente cobrados.</p>
+    </div>
+  </div>
+
+  <section class="panel summary-filter-panel" aria-label="Filtros del resumen mensual">
+    <form class="summary-filter-form" method="get">
+      <label for="summary-month">Mes
+        <select id="summary-month" name="month">
+          {% for number, name in months %}<option value="{{ number }}" {% if month == number %}selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label for="summary-year">Año
+        <input id="summary-year" type="number" name="year" min="1" max="9999" value="{{ year }}" required>
+      </label>
+      <button type="submit">Consultar período</button>
+    </form>
+  </section>
+
+  {% if summary_error %}
+    <p class="summary-error" role="alert">{{ summary_error }}</p>
+  {% else %}
+    <p class="summary-period">Período consultado: <strong>{{ month }}/{{ year }}</strong></p>
+    <div class="summary-grid" aria-label="Resultados del período">
+      <section class="summary-card" aria-labelledby="summary-count-title">
+        <p id="summary-count-title" class="summary-label">Trabajos terminados</p>
+        <p class="summary-value">{{ summary.count }}</p>
+      </section>
+      <section class="summary-card summary-card-total" aria-labelledby="summary-total-title">
+        <p id="summary-total-title" class="summary-label">Total cobrado</p>
+        <p class="summary-value"><span class="summary-currency">ARS</span> {{ summary.total|floatformat:2 }}</p>
+      </section>
+    </div>
+    {% if summary.count == 0 %}
+      <p class="empty-state summary-empty">No hay trabajos terminados en este período.</p>
+    {% endif %}
+    <p class="summary-note">El resumen se agrupa por la fecha de cierre del trabajo e incluye el importe final cobrado, no el total estimado del presupuesto.</p>
+  {% endif %}
+{% endblock %}

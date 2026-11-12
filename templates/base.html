@@ -1,0 +1,33 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142b46">
+  <title>{% block title %}Taller Norte{% endblock %} | Taller Norte</title>
+  <link rel="stylesheet" href="{% static 'tallerweb/site.css' %}">
+</head>
+<body>
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="{% url 'dashboard' %}" aria-label="Taller Norte, inicio">
+        <span class="brand-mark" aria-hidden="true">TN</span>
+        <span><strong>Taller Norte</strong><small>Servicio automotor</small></span>
+      </a>
+      <nav class="site-nav" aria-label="Navegación principal">
+        {% if request.user.is_authenticated %}
+          <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>Vehículos</a>
+          <a href="{% url 'monthly_summary' %}" {% if request.resolver_match.url_name == 'monthly_summary' %}aria-current="page"{% endif %}>Resumen mensual</a>
+          <form method="post" action="{% url 'logout' %}" class="nav-logout">{% csrf_token %}<button class="nav-link" type="submit">Cerrar sesión</button></form>
+        {% else %}
+          <a href="{% url 'login' %}" {% if request.resolver_match.url_name == 'login' %}aria-current="page"{% endif %}>Acceso</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+  <main id="contenido" class="page-shell">{% block content %}{% endblock %}</main>
+  <footer class="site-footer"><div class="footer-inner">Taller Norte <span>·</span> Servicio automotor</div></footer>
+</body>
+</html>

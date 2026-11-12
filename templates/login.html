@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Acceso{% endblock %}
+{% block content %}
+  <section class="panel login-panel login-layout" aria-labelledby="login-heading">
+    <p class="eyebrow">Área de administración</p>
+    <h1 class="page-title" id="login-heading">Acceso del administrador</h1>
+    <p class="page-intro">Ingresa tus credenciales para gestionar los vehículos del taller.</p>
+    {% if form.errors %}<p role="alert">Usuario o contraseña incorrectos.</p>{% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <div class="field"><label for="id_username">Usuario</label>{{ form.username }}</div>
+      <div class="field"><label for="id_password">Contraseña</label>{{ form.password }}</div>
+      <input type="hidden" name="next" value="{{ next }}">
+      <button type="submit">Iniciar sesión</button>
+    </form>
+  </section>
+{% endblock %}

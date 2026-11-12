@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Vehículos{% endblock %}
+{% block content %}
+    <header class="dashboard-heading">
+      <div><p class="eyebrow">Gestión del taller</p>
+      <h1 class="page-title">Vehículos del taller</h1>
+      <p class="page-intro">Presupuestos e historial de los vehículos atendidos.</p></div>
+      <p class="session-chip">Sesión: <strong>{{ request.user.username }}</strong></p>
+    </header>
+    <section class="panel" aria-labelledby="filters-heading">
+    <h2 id="filters-heading">Buscar y filtrar</h2>
+    <form class="filter-grid" method="get" action="{% url 'dashboard' %}">
+      <label for="filter-plate">Patente <input id="filter-plate" name="plate" value="{{ filters.plate }}" autocomplete="off"></label>
+      <label>Tipo de cliente
+        <select name="customer_type" aria-label="Tipo de cliente">
+          <option value="">Todos</option>
+          <option value="municipalidad" {% if filters.customer_type == "municipalidad" %}selected{% endif %}>Municipalidad</option>
+          <option value="particular" {% if filters.customer_type == "particular" %}selected{% endif %}>Particular</option>
+        </select>
+      </label>
+      <label for="date-from">Fecha del presupuesto desde <input id="date-from" type="date" name="date_from" value="{{ filters.date_from }}"></label>
+      <label for="date-to">hasta <input id="date-to" type="date" name="date_to" value="{{ filters.date_to }}"></label>
+      <button type="submit">Buscar y filtrar</button>
+      {% if filters_active %}<a href="{% url 'dashboard' %}">Limpiar filtros</a>{% endif %}
+    </form>
+    </section>
+    {% for error in filter_errors %}<p role="alert">{{ error }}</p>{% endfor %}
+    {% if not filter_errors and filters_active and not budgets and not vehicles %}<p>No se encontraron vehículos ni presupuestos con esos filtros.</p>{% endif %}
+    <section class="results-section" aria-labelledby="budgets-list-heading"><h2 id="budgets-list-heading">Presupuestos encontrados</h2>
+    {% if budgets %}<ul class="record-list">{% for budget in budgets %}<li class="record-row"><span class="record-date">{{ budget.created_at|date:"d/m/Y" }}</span><span><strong>{{ budget.number }}</strong><small>{{ budget.vehicle.plate }} · {{ budget.vehicle.get_customer_type_display }}</small></span><a class="button button-secondary" href="{% url 'vehicle_detail' budget.vehicle_id %}">Ver historial</a></li>{% endfor %}</ul>
+    {% elif not filter_errors and not filters_active %}<p class="empty-state">Todavía no hay presupuestos registrados.</p>{% endif %}</section>
+    <section class="results-section" aria-labelledby="vehicles-list-heading"><h2 id="vehicles-list-heading">Vehículos</h2>
+    {% if vehicles %}
+      <ul class="record-list">{% for vehicle in vehicles %}<li class="record-row"><span><a href="{% url 'vehicle_detail' vehicle.pk %}"><strong>{{ vehicle.plate }}</strong></a><small>{{ vehicle.make }} {{ vehicle.model }} · {{ vehicle.get_customer_type_display }}</small></span><a class="text-link" href="{% url 'vehicle_detail' vehicle.pk %}">Abrir historial <span aria-hidden="true">→</span></a></li>{% endfor %}</ul>
+    {% elif not filter_errors and not filters_active %}<p class="empty-state">Todavía no hay vehículos registrados.</p>{% endif %}</section>
+{% endblock %}
