@@ -237,6 +237,34 @@ class BudgetAIExtractionTests(TestCase):
 
         self.assertTrue(corrected["labor_only"])
 
+    def test_ai_correction_updates_description_without_overwriting_other_fields(self):
+        from tallerweb.budget_ai import merge_correction
+
+        corrected = merge_correction(
+            {"description": "Cambio de aceite", "labor_amount": Decimal("40000"),
+             "items": [], "uncertainties": []},
+            {"description": "Cambio de aceite y filtro", "labor_amount": None,
+             "items": [], "uncertainties": []},
+        )
+
+        self.assertEqual(corrected["description"], "Cambio de aceite y filtro")
+        self.assertEqual(corrected["labor_amount"], Decimal("40000"))
+
+    def test_ai_correction_resolves_one_doubt_and_retains_unrelated_doubt(self):
+        from tallerweb.budget_ai import LOCAL_VALIDATION_UNCERTAINTIES, merge_correction
+
+        unrelated = "falta confirmar si se incluyen repuestos"
+        price_uncertainty = next(value for value in LOCAL_VALIDATION_UNCERTAINTIES
+                                 if value.startswith("El repuesto requiere"))
+        corrected = merge_correction(
+            {"items": [{"description": "Discos", "quantity": 2, "unit_price": None}],
+             "uncertainties": [price_uncertainty, unrelated]},
+            {"items": [{"description": "Discos", "quantity": 2, "unit_price": Decimal("5000")}],
+             "uncertainties": []},
+        )
+
+        self.assertEqual(corrected["uncertainties"], [unrelated])
+
     def test_candidate_validation_rejects_invalid_values_without_writing_records(self):
         from tallerweb.budget_ai import validate_candidate
 
