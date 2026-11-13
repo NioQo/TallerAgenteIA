@@ -192,6 +192,51 @@ class BudgetAIExtractionTests(TestCase):
         self.assertEqual(corrected["items"][0]["unit_price"], Decimal("5000"))
         self.assertEqual(corrected["uncertainties"], [])
 
+    def test_ai_correction_updates_one_item_and_preserves_the_rest(self):
+        from tallerweb.budget_ai import merge_correction
+
+        original = {"items": [
+            {"description": "Discos", "quantity": 2, "unit_price": Decimal("1000")},
+            {"description": "Pastillas", "quantity": 1, "unit_price": Decimal("500")},
+        ], "uncertainties": []}
+        candidate = {"items": [
+            {"description": "Discos", "quantity": 2, "unit_price": Decimal("1200")},
+        ], "uncertainties": []}
+
+        corrected = merge_correction(original, candidate)
+
+        self.assertEqual([item["description"] for item in corrected["items"]], ["Discos", "Pastillas"])
+        self.assertEqual(corrected["items"][0]["unit_price"], Decimal("1200"))
+        self.assertEqual(corrected["items"][1]["unit_price"], Decimal("500"))
+
+    def test_ai_correction_retains_unresolved_item_uncertainty(self):
+        from tallerweb.budget_ai import LOCAL_VALIDATION_UNCERTAINTIES, merge_correction
+
+        uncertainty = LOCAL_VALIDATION_UNCERTAINTIES[2]
+        original = {"items": [
+            {"description": "Discos", "quantity": 2, "unit_price": None},
+            {"description": "Pastillas", "quantity": 1, "unit_price": None},
+        ], "uncertainties": [uncertainty]}
+        candidate = {"items": [
+            {"description": "Discos", "quantity": 2, "unit_price": Decimal("1200")},
+        ], "uncertainties": []}
+
+        corrected = merge_correction(original, candidate)
+
+        self.assertEqual(corrected["items"][0]["unit_price"], Decimal("1200"))
+        self.assertIsNone(corrected["items"][1]["unit_price"])
+        self.assertIn(uncertainty, corrected["uncertainties"])
+
+    def test_correction_does_not_change_labor_only_when_not_mentioned(self):
+        from tallerweb.budget_ai import merge_correction
+
+        corrected = merge_correction(
+            {"labor_only": True, "items": [], "uncertainties": []},
+            {"labor_only": None, "labor_amount": Decimal("60000"), "items": [], "uncertainties": []},
+        )
+
+        self.assertTrue(corrected["labor_only"])
+
     def test_candidate_validation_rejects_invalid_values_without_writing_records(self):
         from tallerweb.budget_ai import validate_candidate
 
