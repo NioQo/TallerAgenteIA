@@ -21,7 +21,7 @@
 body { margin: 0; background: var(--paper); color: var(--ink); line-height: 1.55; }
 a { color: #124b78; text-underline-offset: .18em; }
 a:hover { color: var(--orange); }
-:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px var(--focus); }
 .skip-link { position: absolute; z-index: 2; top: .5rem; left: .5rem; transform: translateY(-160%); padding: .7rem 1rem; background: #fff; color: var(--navy); }
 .skip-link:focus { transform: translateY(0); }
 .site-header { background: var(--navy); color: white; }
