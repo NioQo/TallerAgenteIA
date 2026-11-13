@@ -14,7 +14,7 @@ from django.core.files.base import ContentFile
 
 from tallerweb.models import Budget, BudgetDraft, BudgetItem, PartCatalog, Vehicle, normalize_plate
 from tallerweb.pdf import budget_pdf
-from tallerweb.budget_ai import extract_budget, merge_correction
+from tallerweb.budget_ai import extract_budget, merge_correction, validate_candidate
 
 
 PLATE, MAKE, MODEL, CUSTOMER_TYPE, CUSTOMER_NAME, CUSTOMER_PHONE = range(6)
@@ -108,8 +108,80 @@ def update_catalog_prices(items):
             PartCatalog.objects.create(description=item["description"], suggested_unit_price=item["unit_price"])
 
 
+def validate_budget_data(data):
+    """Validate and deterministically total a budget before any domain write."""
+    description = data.get("description")
+    if not isinstance(description, str) or not description.strip() or len(description) > 2000:
+        raise ValueError("Falta una descripción válida del trabajo.")
+    if data.get("vehicle") is None:
+        vehicle_data = data.get("vehicle_data")
+        required_vehicle_fields = ("plate", "make", "model", "customer_type", "customer_name", "customer_phone")
+        if (not isinstance(vehicle_data, dict)
+                or any(not isinstance(vehicle_data.get(field), str) or not vehicle_data[field].strip()
+                       for field in required_vehicle_fields)
+                or vehicle_data.get("customer_type") not in Vehicle.CustomerType.values):
+            raise ValueError("Faltan datos válidos del vehículo o del cliente.")
+        limits = {"plate": 20, "make": 100, "model": 100, "customer_name": 200, "customer_phone": 50}
+        if (any(len(vehicle_data[field].strip()) > limit for field, limit in limits.items())
+                or not normalize_plate(vehicle_data["plate"])):
+            raise ValueError("Los datos del vehículo o del cliente exceden los límites permitidos.")
+    source_draft = data.get("ai_source_draft")
+    if source_draft:
+        if source_draft.get("uncertainties"):
+            raise ValueError("Quedan aclaraciones pendientes en el borrador IA.")
+        vehicle = data.get("vehicle")
+        reference = vehicle if vehicle is not None else data.get("vehicle_data", {})
+        for field in ("plate", "make", "model", "customer_type", "customer_name", "customer_phone"):
+            proposed = source_draft.get(field)
+            registered = getattr(reference, field, None) if vehicle is not None else reference.get(field)
+            if proposed and registered and (normalize_plate(proposed) != normalize_plate(registered)
+                                            if field == "plate" else proposed != registered):
+                raise ValueError("El borrador IA contradice los datos del vehículo o cliente.")
+        if any(item.get("unit_price") is None for item in source_draft.get("items", [])):
+            raise ValueError("Cada repuesto del borrador IA requiere precio unitario explícito.")
+    try:
+        labor = Decimal(str(data["labor_amount"]))
+        if (not labor.is_finite() or labor < 0 or labor.as_tuple().exponent < -2
+                or labor > Decimal("9999999999.99")):
+            raise InvalidOperation
+    except (KeyError, InvalidOperation, ValueError, TypeError):
+        raise ValueError("La mano de obra debe ser válida, no negativa y tener hasta dos decimales.")
+
+    items = data.get("items")
+    if not isinstance(items, list):
+        raise ValueError("La lista de repuestos no es válida.")
+    normalized_items = []
+    total = labor
+    for item in items:
+        try:
+            item_description = item["description"]
+            quantity = item["quantity"]
+            quantity_number = Decimal(str(quantity))
+            unit_price = Decimal(str(item["unit_price"]))
+            if (not isinstance(item_description, str) or not item_description.strip()
+                    or len(item_description) > 200 or not quantity_number.is_finite()
+                    or quantity_number <= 0 or quantity_number != quantity_number.to_integral_value()
+                    or quantity_number > 2147483647 or not unit_price.is_finite() or unit_price < 0
+                    or unit_price.as_tuple().exponent < -2 or unit_price > Decimal("9999999999.99")):
+                raise InvalidOperation
+        except (KeyError, InvalidOperation, ValueError, TypeError):
+            raise ValueError("Cada repuesto requiere descripción, cantidad positiva y precio unitario válido.")
+        quantity = int(quantity_number)
+        subtotal = money(unit_price * quantity)
+        total += subtotal
+        normalized_items.append({"description": item_description.strip(), "quantity": quantity,
+                                 "unit_price": unit_price, "subtotal": subtotal})
+    if total > Decimal("9999999999.99"):
+        raise ValueError("El total está fuera del rango permitido.")
+    result = dict(data)
+    result.update({"description": description.strip(), "labor_amount": labor,
+                   "items": normalized_items, "total": money(total)})
+    return result
+
+
 @sync_to_async
 def save_budget(data):
+    data = validate_budget_data(data)
     try:
         with transaction.atomic():
             existing = Budget.objects.filter(confirmation_key=data["confirmation_key"]).first()
@@ -132,7 +204,7 @@ def save_budget(data):
                     raise ValueError("La patente ya está registrada con datos diferentes.")
             last = Budget.objects.select_for_update().order_by("-pk").first()
             number = f"P-{(last.pk if last else 0) + 1:06d}"
-            fields = {k: v for k, v in data.items() if k not in {"items", "vehicle_data"}}
+            fields = {k: v for k, v in data.items() if k not in {"items", "vehicle_data", "ai_source_draft"}}
             fields["vehicle"] = vehicle
             budget = Budget.objects.create(number=number, **fields)
             BudgetItem.objects.bulk_create([BudgetItem(budget=budget, **item) for item in data["items"]])
@@ -171,6 +243,7 @@ def has_next_version(budget_id):
 def save_budget_revision(original_id, data):
     with transaction.atomic():
         original = Budget.objects.select_for_update().get(pk=original_id)
+        data = validate_budget_data({**data, "vehicle": original.vehicle})
         if original.status != Budget.Status.PENDING:
             raise ValueError("Solo se pueden crear versiones de presupuestos pendientes.")
         if Budget.objects.filter(previous_version=original).exists():
@@ -206,6 +279,27 @@ async def start_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     resumed_ai_draft = bool(ai_draft)
     if not resumed_ai_draft and await offer_draft_actions(update.effective_message):
         return
+    if ai_draft:
+        checked = validate_candidate(ai_draft)
+        if checked.get("plate"):
+            existing_vehicle = await find_vehicle(normalize_plate(checked["plate"]))
+            if existing_vehicle:
+                fields = ("make", "model", "customer_type", "customer_name", "customer_phone")
+                if any(checked.get(field) and checked[field] != getattr(existing_vehicle, field) for field in fields):
+                    checked.setdefault("uncertainties", []).append(
+                        "Los datos del cliente o vehículo contradicen el registro; confirma o corrige explícitamente."
+                    )
+        required = ("plate", "make", "model", "customer_type", "customer_name", "customer_phone",
+                    "description", "labor_amount")
+        incomplete = any(not checked.get(field) for field in required)
+        invalid_items = any(not item.get("description", "").strip() or not item.get("quantity")
+                            or item.get("unit_price") is None for item in checked.get("items", []))
+        if (incomplete or invalid_items or (not checked.get("items") and not checked.get("labor_only")
+                                            or checked.get("uncertainties"))):
+            context.user_data["ai_budget"] = checked
+            await show_ai_budget_draft(update.effective_message, checked)
+            return
+        ai_draft = checked
     context.user_data.clear()
     guided_draft = {"items": [], "confirmation_key": str(uuid.uuid4())}
     if ai_draft:
@@ -227,7 +321,6 @@ async def start_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                      "unit_price": Decimal(str(item["unit_price"])),
                      "subtotal": money(Decimal(str(item["unit_price"])) * item["quantity"])}
                     for item in ai_draft.get("items", [])
-                    if item.get("quantity") and item.get("unit_price") is not None
                 ],
             })
         elif candidate_vehicle:
@@ -240,7 +333,6 @@ async def start_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                      "unit_price": Decimal(str(item["unit_price"])),
                      "subtotal": money(Decimal(str(item["unit_price"])) * item["quantity"])}
                     for item in ai_draft.get("items", [])
-                    if item.get("quantity") and item.get("unit_price") is not None
                 ],
             })
         guided_draft["ai_source_draft"] = ai_draft
@@ -321,12 +413,17 @@ async def budget_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not draft or draft.get("confirmation_key") != key:
             await query.edit_message_text("Este resumen ya no está disponible. Inicia con /presupuesto.")
             return
-        data = {
-            "confirmation_key": key, "vehicle": draft.get("vehicle"),
-            "vehicle_data": draft.get("vehicle_data"), "description": draft["description"],
-            "labor_amount": draft["labor_amount"], "total": budget_total(draft), "items": draft["items"],
-        }
+        if draft.get("ai_source_draft", {}).get("uncertainties"):
+            await query.edit_message_text("No se confirmó: primero resuelve las aclaraciones del borrador IA.")
+            return
         try:
+            data = {
+                "confirmation_key": key, "vehicle": draft.get("vehicle"),
+                "vehicle_data": draft.get("vehicle_data"), "description": draft.get("description"),
+                "labor_amount": draft.get("labor_amount"), "items": draft.get("items"),
+                "ai_source_draft": draft.get("ai_source_draft"),
+            }
+            data = validate_budget_data(data)
             if draft.get("revision_of"):
                 budget = await save_budget_revision(draft["revision_of"], data)
             else:
@@ -381,6 +478,18 @@ def budget_total(draft):
 
 
 async def show_budget_summary(message, draft):
+    try:
+        validated = validate_budget_data({
+            "vehicle": draft.get("vehicle"), "vehicle_data": draft.get("vehicle_data"),
+            "description": draft.get("description"), "labor_amount": draft.get("labor_amount"),
+            "items": draft.get("items"),
+        })
+        if draft.get("ai_source_draft", {}).get("uncertainties"):
+            raise ValueError("Quedan aclaraciones pendientes.")
+        draft.update(validated)
+    except (ValueError, InvalidOperation, TypeError):
+        await message.reply_text("No se puede confirmar todavía: revisa los datos obligatorios, importes y repuestos del borrador.")
+        return
     lines = ["Resumen del presupuesto:"]
     if draft.get("vehicle"):
         vehicle = draft["vehicle"]
@@ -708,6 +817,8 @@ async def show_ai_budget_draft(message, draft):
     """Show draft/missing fields only; never create a vehicle, catalog row, or budget here."""
     from tallerweb.models import normalize_plate
 
+    draft.update(validate_candidate(draft))
+
     if draft.get("plate"):
         vehicle = await find_vehicle(normalize_plate(draft["plate"]))
         if vehicle:
@@ -728,11 +839,13 @@ async def show_ai_budget_draft(message, draft):
             missing.append(label)
     if not draft.get("items") and not draft.get("labor_only"):
         missing.append("repuestos o confirmar que es solo mano de obra")
-    ambiguous = any(item.get("quantity") is None or
-                    (item.get("unit_price") is None and item.get("total_price") is None)
+    ambiguous = any(not item.get("description", "").strip() or item.get("quantity") is None
+                    or item.get("unit_price") is None
                     for item in draft.get("items", []))
     if ambiguous:
-        missing.append("aclarar cantidad y si cada importe es unitario o total")
+        missing.append("aclarar descripción, cantidad y precio unitario de cada repuesto")
+    if draft.get("items") and draft.get("labor_only"):
+        missing.append("aclarar si se incluyen repuestos o el trabajo es solo mano de obra")
     missing.extend(draft.get("uncertainties", []))
     if missing:
         await message.reply_text("Para completar el borrador necesito: " + "; ".join(dict.fromkeys(missing)) + ".")

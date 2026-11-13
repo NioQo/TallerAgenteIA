@@ -162,6 +162,36 @@ class BudgetAIExtractionTests(TestCase):
         self.assertEqual(corrected["description"], "Cambio de frenos")
         self.assertEqual(corrected["items"], original["items"])
 
+    def test_ai_correction_clears_stale_registered_vehicle_conflict(self):
+        from tallerweb.budget_ai import merge_correction
+
+        corrected = merge_correction(
+            {"customer_name": "Dato anterior", "uncertainties": [
+                "customer_name: el vehículo registrado tiene otro dato; confirma o corrige.",
+                "falta confirmar si se incluyen repuestos",
+            ]},
+            {"customer_name": "Municipalidad", "uncertainties": []},
+        )
+
+        self.assertEqual(corrected["customer_name"], "Municipalidad")
+        self.assertEqual(corrected["uncertainties"], ["falta confirmar si se incluyen repuestos"])
+
+    def test_ai_correction_resolves_old_total_only_price_uncertainty(self):
+        from tallerweb.budget_ai import merge_correction
+
+        corrected = merge_correction(
+            {"labor_amount": Decimal("100"), "items": [{
+                "description": "Discos", "quantity": 2, "unit_price": None, "total_price": Decimal("10000")
+            }], "uncertainties": [
+                "El repuesto requiere un precio unitario explícito; no se calcula desde un precio total."
+            ]},
+            {"items": [{"description": "Discos", "quantity": 2,
+                         "unit_price": Decimal("5000"), "total_price": None}], "uncertainties": []},
+        )
+
+        self.assertEqual(corrected["items"][0]["unit_price"], Decimal("5000"))
+        self.assertEqual(corrected["uncertainties"], [])
+
     def test_candidate_validation_rejects_invalid_values_without_writing_records(self):
         from tallerweb.budget_ai import validate_candidate
 
@@ -175,6 +205,59 @@ class BudgetAIExtractionTests(TestCase):
         self.assertTrue(candidate["uncertainties"])
         self.assertEqual(Vehicle.objects.count(), 0)
         self.assertEqual(Budget.objects.count(), 0)
+
+    def test_candidate_validation_marks_negative_labor_and_total_only_parts_as_unresolved(self):
+        from tallerweb.budget_ai import validate_candidate
+
+        candidate = validate_candidate({
+            "labor_amount": "-100",
+            "items": [{"description": "Discos", "quantity": 2,
+                       "unit_price": None, "total_price": "10000"}],
+            "uncertainties": [],
+        })
+
+        self.assertIsNone(candidate["labor_amount"])
+        self.assertIsNone(candidate["items"][0]["unit_price"])
+        self.assertIn("total_price", candidate["items"][0])
+        self.assertTrue(candidate["uncertainties"])
+
+    def test_candidate_validation_rejects_nonfinite_and_out_of_range_labor(self):
+        from tallerweb.budget_ai import validate_candidate
+
+        for amount in ("NaN", "Infinity", "10000000000", "1.001"):
+            with self.subTest(amount=amount):
+                candidate = validate_candidate({"labor_amount": amount, "items": [], "uncertainties": []})
+                self.assertIsNone(candidate["labor_amount"])
+                self.assertTrue(candidate["uncertainties"])
+
+    def test_starting_guided_flow_does_not_offer_summary_for_contradictory_ai_customer(self):
+        import asyncio
+        from unittest.mock import AsyncMock, Mock, patch
+
+        from tallerweb.management.commands.runbot import start_budget
+
+        vehicle = Vehicle.objects.create(plate="AI-123-AA", make="Ford", model="Ranger",
+                                          customer_type=Vehicle.CustomerType.MUNICIPALITY,
+                                          customer_name="Municipalidad", customer_phone="123")
+        context = Mock()
+        context.user_data = {"ai_budget": {
+            "plate": vehicle.plate, "make": vehicle.make, "model": vehicle.model,
+            "customer_type": vehicle.customer_type, "customer_name": "Otro cliente",
+            "customer_phone": vehicle.customer_phone, "description": "Reparación",
+            "items": [], "labor_amount": "100", "labor_only": True, "uncertainties": [],
+        }}
+        update = Mock()
+        update.effective_user.id = 123456
+        update.effective_message.reply_text = AsyncMock()
+        with (patch("tallerweb.management.commands.runbot.settings.TELEGRAM_ALLOWED_USER_ID", "123456"),
+              patch("tallerweb.management.commands.runbot.find_vehicle", new=AsyncMock(return_value=vehicle)),
+              patch("tallerweb.management.commands.runbot.show_ai_budget_draft", new=AsyncMock()) as show_draft,
+              patch("tallerweb.management.commands.runbot.show_budget_summary", new=AsyncMock()) as show_summary):
+            asyncio.run(start_budget(update, context))
+
+        show_draft.assert_awaited_once()
+        show_summary.assert_not_awaited()
+        self.assertTrue(context.user_data["ai_budget"]["uncertainties"])
 
     def test_real_extraction_is_disabled_by_default(self):
         import asyncio
@@ -445,6 +528,60 @@ class BudgetModelAndWebTests(TestCase):
         self.assertEqual(budget.vehicle.customer_name, "Ana")
         self.assertEqual(PartCatalog.objects.get(description="Filtro").suggested_unit_price, Decimal("1500.00"))
         self.assertTrue(budget.pdf)
+
+    def test_invalid_budget_is_rejected_before_vehicle_budget_catalog_or_pdf_write(self):
+        from tallerweb.management.commands.runbot import save_budget
+
+        for amount in ("-100.00", "NaN", "Infinity", "1.001", "10000000000"):
+            with self.subTest(amount=amount), self.assertRaises(ValueError):
+                save_budget.__wrapped__({
+                    "confirmation_key": uuid4(), "vehicle": None,
+                    "vehicle_data": {"plate": "CC-456-DD", "make": "Toyota", "model": "Hilux",
+                                     "customer_type": "particular", "customer_name": "Ana", "customer_phone": "555"},
+                    "description": "Cambio de filtro", "labor_amount": Decimal(amount),
+                    "total": Decimal("0.00"),
+                    "items": [{"description": "Filtro", "quantity": 1, "unit_price": Decimal("1500.00"),
+                               "subtotal": Decimal("1500.00")}],
+                })
+
+        self.assertEqual(Vehicle.objects.filter(normalized_plate="CC456DD").count(), 0)
+        self.assertEqual(Budget.objects.count(), 0)
+        self.assertEqual(PartCatalog.objects.count(), 0)
+
+    def test_total_only_or_incomplete_part_is_rejected_at_budget_write_boundary(self):
+        from tallerweb.management.commands.runbot import save_budget
+
+        for item in (
+            {"description": "Discos", "quantity": 2, "total_price": Decimal("10000.00"),
+             "subtotal": Decimal("10000.00")},
+            {"description": "Discos", "quantity": 0, "unit_price": Decimal("5000.00"),
+             "subtotal": Decimal("0.00")},
+        ):
+            with self.subTest(item=item), self.assertRaises(ValueError):
+                save_budget.__wrapped__({
+                    "confirmation_key": uuid4(), "vehicle": self.vehicle, "description": "Reparación",
+                    "labor_amount": Decimal("100.00"), "total": Decimal("10100.00"), "items": [item],
+                })
+
+        self.assertEqual(Budget.objects.count(), 0)
+        self.assertEqual(PartCatalog.objects.count(), 0)
+
+    def test_contradictory_ai_vehicle_is_rejected_at_budget_write_boundary(self):
+        from tallerweb.management.commands.runbot import save_budget
+
+        with self.assertRaises(ValueError):
+            save_budget.__wrapped__({
+                "confirmation_key": uuid4(), "vehicle": self.vehicle,
+                "description": "Reparación", "labor_amount": Decimal("100.00"), "items": [],
+                "ai_source_draft": {
+                    "plate": self.vehicle.plate, "make": self.vehicle.make, "model": self.vehicle.model,
+                    "customer_type": self.vehicle.customer_type, "customer_name": "Otro cliente",
+                    "customer_phone": self.vehicle.customer_phone, "items": [], "uncertainties": [],
+                },
+            })
+
+        self.assertEqual(Budget.objects.count(), 0)
+        self.assertEqual(PartCatalog.objects.count(), 0)
 
     def test_summary_allows_correcting_description_before_confirmation(self):
         import asyncio
