@@ -176,6 +176,18 @@ class BudgetAIExtractionTests(TestCase):
         self.assertEqual(corrected["customer_name"], "Municipalidad")
         self.assertEqual(corrected["uncertainties"], ["falta confirmar si se incluyen repuestos"])
 
+    def test_ai_correction_preserves_unrelated_registered_vehicle_conflict(self):
+        from tallerweb.budget_ai import merge_correction
+
+        conflict = "customer_name: el veh" + chr(237) + "culo registrado tiene otro dato; confirma o corrige."
+        corrected = merge_correction(
+            {"customer_name": "Dato anterior", "description": "Frenos", "uncertainties": [conflict]},
+            {"description": "Cambio de frenos", "uncertainties": []},
+        )
+
+        self.assertEqual(corrected["customer_name"], "Dato anterior")
+        self.assertEqual(corrected["uncertainties"], [conflict])
+
     def test_ai_correction_resolves_old_total_only_price_uncertainty(self):
         from tallerweb.budget_ai import merge_correction
 

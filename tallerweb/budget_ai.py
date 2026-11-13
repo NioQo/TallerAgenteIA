@@ -67,12 +67,16 @@ def merge_correction(previous: dict, candidate: dict) -> dict:
     merged = dict(previous)
     vehicle_conflicts = ("Los datos del cliente o vehículo contradicen",)
     vehicle_fields = ("make", "model", "customer_type", "customer_name", "customer_phone")
+    resolved_vehicle_fields = {
+        field for field in vehicle_fields if candidate.get(field) is not None and candidate.get(field) != ""
+    }
     previous_uncertainties = [
         uncertainty for uncertainty in previous.get("uncertainties", [])
         if uncertainty not in LOCAL_VALIDATION_UNCERTAINTIES
-        and not uncertainty.startswith(vehicle_conflicts)
+        and not (uncertainty.startswith(vehicle_conflicts)
+                 and set(vehicle_fields).issubset(resolved_vehicle_fields))
         and not any(uncertainty.startswith(f"{field}: el vehículo registrado tiene otro dato")
-                    for field in vehicle_fields)
+                    and field in resolved_vehicle_fields for field in vehicle_fields)
     ]
     merged["uncertainties"] = previous_uncertainties
     for key, value in candidate.items():
@@ -83,9 +87,9 @@ def merge_correction(previous: dict, candidate: dict) -> dict:
             if value:
                 items = [dict(item) for item in previous.get("items", [])]
                 for corrected_item in value:
-                    identity = str(corrected_item.get("description", "")).strip().casefold()
+                    normalized_description = str(corrected_item.get("description", "")).strip().casefold()
                     existing_index = next((index for index, item in enumerate(items)
-                        if str(item.get("description", "")).strip().casefold() == identity), None)
+                        if str(item.get("description", "")).strip().casefold() == normalized_description), None)
                     if existing_index is None:
                         items.append(corrected_item)
                         continue
