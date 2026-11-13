@@ -2,7 +2,8 @@
   color-scheme: light;
   --navy: #142b46;
   --navy-strong: #0d1e32;
-  --orange: #c85b16;
+  --orange: #963f0b;
+  --orange-button: #a9470b;
   --orange-soft: #fff1e7;
   --paper: #f4f6f8;
   --surface: #fff;
@@ -10,14 +11,14 @@
   --muted: #536273;
   --line: #d5dde5;
   --danger: #a52828;
-  --focus: #f08a24;
+  --focus: #0d1e32;
   font-family: Inter, "Segoe UI", Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; background: var(--paper); color: var(--ink); line-height: 1.55; }
+body { margin: 0; background: var(--paper); color: var(--ink); line-height: 1.55; }
 a { color: #124b78; text-underline-offset: .18em; }
 a:hover { color: var(--orange); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
@@ -48,8 +49,8 @@ form { display: flex; align-items: end; flex-wrap: wrap; gap: 1rem; }
 form > label { flex: 1 1 190px; }
 label { display: inline-flex; flex-direction: column; gap: .35rem; color: #26384a; font-weight: 600; }
 input, select { width: 100%; min-height: 44px; padding: .55rem .7rem; border: 1px solid #8796a6; border-radius: 6px; background: white; color: var(--ink); font: inherit; }
-button, .button { min-height: 44px; padding: .6rem 1rem; border: 1px solid var(--orange); border-radius: 6px; background: var(--orange); color: white; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
-button:hover, .button:hover { border-color: #a9470b; background: #a9470b; color: white; }
+button, .button { min-height: 44px; padding: .6rem 1rem; border: 1px solid var(--orange-button); border-radius: 6px; background: var(--orange-button); color: white; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
+button:hover, .button:hover { border-color: #873906; background: #873906; color: white; }
 button[name="decision"][value="rechazado"] { border-color: var(--navy); background: var(--navy); }
 [role="alert"] { padding: .75rem 1rem; border-left: 4px solid var(--danger); border-radius: 4px; background: #fff0f0; color: #741d1d; }
 .empty-state { padding: 1rem; border-radius: 8px; background: #edf2f6; color: #3c4c5d; }
@@ -152,6 +153,6 @@ article + article { margin-top: 1rem; }
   .summary-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 760px) {
+@media (min-width: 601px) and (max-width: 760px) {
   .vehicle-facts dl { grid-template-columns: max-content minmax(0, 1fr); }
 }
