@@ -496,6 +496,8 @@ class BudgetModelAndWebTests(TestCase):
         self.assertEqual(budget_total(draft), Decimal("30.55"))
 
     def test_confirmation_key_replay_returns_one_persisted_budget(self):
+        from tempfile import TemporaryDirectory
+        from django.test import override_settings
         from tallerweb.management.commands.runbot import save_budget
 
         key = uuid4()
@@ -503,13 +505,16 @@ class BudgetModelAndWebTests(TestCase):
                 "labor_amount": Decimal("40000.00"), "total": Decimal("70000.00"),
                 "items": [{"description": "Filtro", "quantity": 2, "unit_price": Decimal("15000.00"),
                            "subtotal": Decimal("30000.00")}]}
-        first = save_budget.__wrapped__(data)
-        second = save_budget.__wrapped__(data)
+        with TemporaryDirectory() as media_dir, override_settings(MEDIA_ROOT=media_dir):
+            first = save_budget.__wrapped__(data)
+            second = save_budget.__wrapped__(data)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(Budget.objects.count(), 1)
         self.assertEqual(first.items.count(), 1)
 
     def test_confirming_new_ai_vehicle_creates_vehicle_budget_and_catalog_together(self):
+        from tempfile import TemporaryDirectory
+        from django.test import override_settings
         from tallerweb.management.commands.runbot import save_budget
 
         data = {
@@ -522,7 +527,8 @@ class BudgetModelAndWebTests(TestCase):
                        "subtotal": Decimal("1500.00")}],
         }
 
-        budget = save_budget.__wrapped__(data)
+        with TemporaryDirectory() as media_dir, override_settings(MEDIA_ROOT=media_dir):
+            budget = save_budget.__wrapped__(data)
 
         self.assertEqual(Vehicle.objects.filter(normalized_plate="CC456DD").count(), 1)
         self.assertEqual(budget.vehicle.customer_name, "Ana")
@@ -870,22 +876,54 @@ class BudgetModelAndWebTests(TestCase):
         self.assertEqual(revision.items.get().unit_price, Decimal("15000.00"))
 
     def test_revision_save_rejects_budget_that_is_not_pending(self):
+        from tempfile import TemporaryDirectory
+        from django.test import override_settings
         from tallerweb.management.commands.runbot import save_budget, save_budget_revision
 
-        original = save_budget.__wrapped__({
-            "confirmation_key": uuid4(), "vehicle": self.vehicle, "description": "Trabajo",
-            "labor_amount": Decimal("0.00"), "total": Decimal("1.00"),
-            "items": [{"description": "Filtro", "quantity": 1, "unit_price": Decimal("1.00"),
-                       "subtotal": Decimal("1.00")}],
-        })
-        Budget.objects.filter(pk=original.pk).update(status="aprobado")
-        with self.assertRaises(ValueError):
-            save_budget_revision.__wrapped__(original.pk, {
-                "confirmation_key": uuid4(), "description": "Cambio", "labor_amount": Decimal("0.00"),
-                "total": Decimal("1.00"), "items": [],
+        with TemporaryDirectory() as media_dir, override_settings(MEDIA_ROOT=media_dir):
+            original = save_budget.__wrapped__({
+                "confirmation_key": uuid4(), "vehicle": self.vehicle, "description": "Trabajo",
+                "labor_amount": Decimal("0.00"), "total": Decimal("1.00"),
+                "items": [{"description": "Filtro", "quantity": 1, "unit_price": Decimal("1.00"),
+                           "subtotal": Decimal("1.00")}],
             })
+            Budget.objects.filter(pk=original.pk).update(status="aprobado")
+            with self.assertRaises(ValueError):
+                save_budget_revision.__wrapped__(original.pk, {
+                    "confirmation_key": uuid4(), "description": "Cambio", "labor_amount": Decimal("0.00"),
+                    "total": Decimal("1.00"), "items": [],
+                })
         self.assertEqual(Budget.objects.count(), 1)
 
+
+    def test_failed_budget_save_leaves_file_only_in_temporary_media(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from django.test import override_settings
+        from tallerweb.management.commands.runbot import save_budget
+
+        original_save = Budget.save
+
+        def fail_after_pdf_is_written(budget, *args, **kwargs):
+            result = original_save(budget, *args, **kwargs)
+            if budget.pdf.name:
+                raise RuntimeError("simulated failure after PDF storage")
+            return result
+
+        with TemporaryDirectory() as media_dir, override_settings(MEDIA_ROOT=media_dir):
+            with patch.object(Budget, "save", fail_after_pdf_is_written):
+                with self.assertRaisesRegex(RuntimeError, "simulated failure"):
+                    save_budget.__wrapped__({
+                        "confirmation_key": uuid4(), "vehicle": self.vehicle,
+                        "description": "Trabajo", "labor_amount": Decimal("1.00"),
+                        "total": Decimal("1.00"), "items": [],
+                    })
+
+            self.assertEqual(Budget.objects.count(), 0)
+            stored_files = [path for path in Path(media_dir).rglob("*") if path.is_file()]
+            self.assertEqual(len(stored_files), 1)
+            self.assertEqual(stored_files[0].suffix, ".pdf")
 
 class PartCatalogTests(TransactionTestCase):
     def setUp(self):
