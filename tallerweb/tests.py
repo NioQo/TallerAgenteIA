@@ -190,6 +190,7 @@ class BudgetAIExtractionTests(TestCase):
         )
 
         self.assertEqual(corrected["items"][0]["unit_price"], Decimal("5000"))
+        self.assertIsNone(corrected["items"][0]["total_price"])
         self.assertEqual(corrected["uncertainties"], [])
 
     def test_ai_correction_updates_one_item_and_preserves_the_rest(self):

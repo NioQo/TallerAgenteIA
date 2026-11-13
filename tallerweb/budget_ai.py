@@ -92,6 +92,8 @@ def merge_correction(previous: dict, candidate: dict) -> dict:
                     existing_item = dict(items[existing_index])
                     existing_item.update({field: field_value for field, field_value in corrected_item.items()
                                           if field_value is not None and field_value != ""})
+                    if corrected_item.get("unit_price") is not None and corrected_item.get("total_price") is None:
+                        existing_item["total_price"] = None
                     items[existing_index] = existing_item
                 merged[key] = items
         elif key == "labor_only":
