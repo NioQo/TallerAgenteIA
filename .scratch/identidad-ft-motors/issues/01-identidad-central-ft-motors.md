@@ -2,7 +2,7 @@
 
 **Objetivo / Qué construir:** definir la identidad real de FT MOTORS en un único lugar y aplicarla a la web y a los PDF nuevos, incluyendo un logotipo de texto reemplazable.
 
-**Status:** spec-ready
+**Status:** done — implementado en el repo (commit `7aef6a2`) y verificado en el PC (ver [ticket 04](04-verificacion-y-regresiones.md)). Despliegue en la notebook: ver comentarios.
 
 **Blocked by:** None (can start immediately).
 
@@ -17,12 +17,17 @@
 
 ## Criterios de aceptación
 
-- [ ] Cambiar un dato de identidad se hace en un solo lugar y se refleja en web y PDF.
-- [ ] Ninguna pantalla ni PDF nuevo muestra "Taller Norte" ni "TALLER DEMO".
-- [ ] Las pruebas que buscaban "Taller Norte" verifican "FT MOTORS" y los datos de contacto.
-- [ ] Prueba nueva: el PDF nuevo contiene nombre, dirección y teléfono reales.
-- [ ] Los PDF ya emitidos en `media/presupuestos/` no se modifican.
-- [ ] No se agregan datos fiscales, email, horarios ni redes.
+- [x] Cambiar un dato de identidad se hace en un solo lugar y se refleja en web y PDF. (`tallerweb/identity.py`, expuesto como `workshop` a las plantillas y usado por `pdf.py`.)
+- [x] Ninguna pantalla ni PDF nuevo muestra "Taller Norte" ni "TALLER DEMO".
+- [x] Las pruebas que buscaban "Taller Norte" verifican "FT MOTORS" y los datos de contacto.
+- [x] Prueba nueva: el PDF nuevo contiene nombre, dirección y teléfono reales.
+- [x] Los PDF ya emitidos en `media/presupuestos/` no se modifican. (Solo pruebas automatizadas.)
+- [x] No se agregan datos fiscales, email, horarios ni redes.
+
+## Comments
+
+- **2026-11-15:** criterios cumplidos en el repo del PC. La instalación activa (notebook Linux) seguía mostrando "Taller Norte" hasta aplicar la actualización; el despliegue requiere `scp` y comandos en la notebook según `docs/servidor-notebook-linux.md`.
+- **2026-11-15, despliegue en la notebook:** código de `HEAD` copiado con `scp` (sin `db.sqlite3`, `media/`, `.env` ni `.venv`). Antes: backup `taller-20261115-031821.zip.enc` y copia del código previo en `~/taller-codigo-antes-20261115-031822.tgz`. Sin migraciones pendientes; `collectstatic` y reinicio de `taller-web` y `taller-bot`. Resultado: ambos servicios activos, login HTTP 200, bot sin `Conflict`. La URL de Tailscale muestra "FT MOTORS", el lema, la dirección y el teléfono en el pie, y el botón "Modo oscuro".
 
 ## Límites
 

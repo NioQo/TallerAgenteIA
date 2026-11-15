@@ -2,7 +2,7 @@
 
 **Objetivo / Qué construir:** comprobar que la identidad real, el estilo y el modo oscuro cumplen los criterios de la ampliación sin regresiones funcionales.
 
-**Status:** spec-ready
+**Status:** done con verificación parcial — verificado en el PC y desplegado en la notebook el 2026-11-15 (pantalla de acceso comprobada por la URL de Tailscale). Pendiente: reinicio real del navegador y recorrido con sesión iniciada en la instalación activa.
 
 **Blocked by:** [01](01-identidad-central-ft-motors.md), [02](02-estilo-ft-motors-hibrido.md) y [03](03-modo-oscuro.md).
 
