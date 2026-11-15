@@ -2,6 +2,10 @@
 
 Aplicación local de demo: Django 5.2, SQLite persistente, bot de Telegram con `python-telegram-bot` en *long polling* y presupuestos PDF. La web y el bot se ejecutan en procesos separados en la computadora del taller; Telegram requiere conexión a Internet. La base de datos `db.sqlite3` conserva la información entre reinicios y los PDF confirmados se guardan en `media/presupuestos/`.
 
+> **Instalación activa:** desde el 2026-11-14 la demo corre en la notebook servidor Linux, no en este PC.
+> Ver [docs/servidor-notebook-linux.md](docs/servidor-notebook-linux.md). Las instrucciones de abajo sirven
+> para desarrollo local en Windows.
+
 ## Requisitos
 
 - Windows 10/11 y Python 3.12 o compatible.

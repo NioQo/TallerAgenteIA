@@ -1,5 +1,11 @@
 # Demo del taller como servidor en la notebook
 
+> **Aviso (2026-11-15):** esta guía supone una notebook Windows y no se usó. La notebook real es Linux y
+> la demo ya corre allí con systemd, cron y Tailscale: ver
+> [servidor notebook Linux](servidor-notebook-linux.md). NSSM, los scripts `.ps1` y las rutas `C:\…` de
+> esta guía no aplican a esa máquina. Siguen siendo válidos `scripts/backup.py`, las variables de `.env`
+> y las explicaciones de HTTPS.
+
 Guía para dejar la demo estable en la notebook usada como servidor: web y bot arrancan solos y se reinician si fallan. Es una etapa **local de demo**; el despliegue en VPS para clientes sigue siendo una etapa futura separada.
 
 > Los scripts de `scripts/` **no se ejecutan solos**. Cada paso con efectos en el sistema (servicios, tareas programadas, energía, túneles) lo ejecutas tú, cuando decidas.
