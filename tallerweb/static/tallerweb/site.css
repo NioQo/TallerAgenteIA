@@ -160,6 +160,47 @@ article + article { margin-top: 1rem; }
 .summary-empty { margin-top: 1rem; }
 .summary-error { margin-block: 1.5rem; }
 
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.theme-toggle { white-space: nowrap; }
+
+/* Full dark mode: graphite/black everywhere, dark cards, light text. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0f1012;
+  --surface: #1e2023;
+  --ink: #eceef0;
+  --muted: #b9c0c8;
+  --line: #3b4047;
+  --red-text: #ff8a98;
+  --danger-bg: #3a1218;
+  --danger-ink: #ffd5da;
+  --focus-ring: #000;
+}
+[data-theme="dark"] a:hover { color: #fff; }
+[data-theme="dark"] .page-title, [data-theme="dark"] h2, [data-theme="dark"] h3, [data-theme="dark"] h4,
+[data-theme="dark"] .budget-total, [data-theme="dark"] .summary-period strong, [data-theme="dark"] .summary-value { color: #fff; }
+[data-theme="dark"] label { color: #dfe3e7; }
+[data-theme="dark"] input, [data-theme="dark"] select { border-color: #8b929a; background: #121315; color: var(--ink); }
+[data-theme="dark"] .panel, [data-theme="dark"] main > section, [data-theme="dark"] main > form, [data-theme="dark"] main > article,
+[data-theme="dark"] .summary-card, [data-theme="dark"] .budget-card { box-shadow: 0 4px 14px rgb(0 0 0 / 45%); }
+[data-theme="dark"] .panel, [data-theme="dark"] main > section, [data-theme="dark"] main > form, [data-theme="dark"] main > article { border-top-color: #565c64; }
+[data-theme="dark"] .login-layout { border-top-color: var(--red); }
+[data-theme="dark"] .session-chip, [data-theme="dark"] .record-row, [data-theme="dark"] .vehicle-facts, [data-theme="dark"] .budget-card { background: var(--surface); }
+[data-theme="dark"] .record-row, [data-theme="dark"] .budget-card { border-left-color: #8b929a; }
+[data-theme="dark"] .summary-card, [data-theme="dark"] .summary-card-total { border-top-color: #565c64; }
+[data-theme="dark"] .summary-card-total { border-top-color: var(--red); }
+[data-theme="dark"] [role="alert"] { border-color: #8f3a46; }
+[data-theme="dark"] .empty-state { border-color: #6b727a; background: #17191b; color: #dfe3e7; }
+[data-theme="dark"] .completion-form { background: #17191b; }
+[data-theme="dark"] .work-item-row { border-color: #565c64; }
+[data-theme="dark"] .current-badge, [data-theme="dark"] .status-aprobado { background: #12351f; color: #8fe0aa; }
+[data-theme="dark"] .historical-badge, [data-theme="dark"] .status-rechazado { background: #2c3035; color: #cfd4da; }
+[data-theme="dark"] .status-pendiente { background: #3d2d08; color: #ffd67a; }
+[data-theme="dark"] .status-trabajo-terminado { background: #11304a; color: #9fd0f5; }
+[data-theme="dark"] button[name="decision"][value="rechazado"], [data-theme="dark"] .button-secondary { border-color: #8b929a; background: #2d3035; }
+[data-theme="dark"] button[name="decision"][value="rechazado"]:hover, [data-theme="dark"] .button-secondary:hover { border-color: #fff; background: #000; }
+[data-theme="dark"] .site-header { border-bottom: 1px solid #2d3035; }
+
 @media (forced-colors: active) {
   .brand-mark { background: none; -webkit-text-fill-color: currentColor; color: CanvasText; }
 }
