@@ -62,7 +62,9 @@ $env:DJANGO_SECRET_KEY = (Select-String '^DJANGO_SECRET_KEY=' .env).Line.Split('
 
 5. Desde la cuenta autorizada, abre el bot y envía `/start`; debe responder que está conectado. Envía `/start` o un mensaje de texto desde otra cuenta; debe responder que no está autorizada. Detén el proceso con `Ctrl+C`.
 
-La interpretación IA de mensajes directos se configura con `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_ENABLED` en `.env`. Permanece deshabilitada por defecto. Al habilitarla, solo se envía a OpenAI el texto del mensaje entrante, nunca los datos previos del borrador. El borrador estructurado se guarda localmente en SQLite y caduca a los 30 días desde su última modificación; al iniciar o reanudar la interacción se ofrecen las opciones de continuarlo o descartarlo. Descartar lo elimina inmediatamente. No se crea vehículo, presupuesto ni cambio de catálogo hasta la confirmación explícita por el flujo guiado `/presupuesto`. Los comandos y botones existentes siguen disponibles.
+La interpretación IA de mensajes directos se configura con `OPENAI_API_KEY`, `OPENAI_MODEL` y `OPENAI_ENABLED` en `.env`. Permanece deshabilitada por defecto. Cada solicitud transmite las instrucciones y el schema de extracción, más únicamente el texto del mensaje entrante; no transmite el borrador, sus datos personales, importes ni historial. El propio mensaje puede contener datos personales si quien opera los escribe. El borrador estructurado se guarda localmente en SQLite y caduca a los 30 días desde su última modificación; al iniciar o reanudar la interacción se ofrecen las opciones de continuarlo o descartarlo. Descartar lo elimina inmediatamente. No se crea vehículo, presupuesto ni cambio de catálogo hasta la confirmación explícita por el flujo guiado `/presupuesto`. Los comandos y botones existentes siguen disponibles.
+
+Antes de habilitar solicitudes reales deben definirse y verificarse la retención del proveedor y límites operativos de uso/costo. Este proyecto no configura ni garantiza la retención de OpenAI ni aplica límites de gasto; por tanto, mantén `OPENAI_ENABLED=False` hasta acordar esos controles y revisar qué datos se incluyen en los mensajes de operación.
 
 Con `/vehiculo`, el mecánico autorizado puede registrar vehículos o consultar uno existente por patente. Para un vehículo nuevo, el bot solicita marca, modelo, tipo de cliente, nombre y teléfono; los campos vacíos se pueden corregir enviando el dato de nuevo. Los vehículos y clientes asociados se conservan en SQLite y aparecen en el listado protegido de la web. Las patentes se comparan sin distinguir mayúsculas, espacios ni guiones.
 
@@ -70,7 +72,7 @@ Con `/presupuesto`, el mecánico inicia un presupuesto para un vehículo existen
 
 Con `/corregir`, selecciona un presupuesto pendiente y revisa o edita descripción, repuestos y mano de obra antes de confirmar. La confirmación genera otra versión con número y PDF propios; no modifica el documento anterior. El historial web muestra cada versión como vigente o histórica y permite descargar su PDF. Solo puede corregirse la versión vigente mientras esté pendiente.
 
-Los PDF son presupuestos (no facturas) y quedan guardados bajo `media/`; conserva esta carpeta junto con `db.sqlite3` al respaldar la demo. La identidad del taller impresa es ficticia y debe reemplazarse cuando se reciban los datos reales.
+Los PDF son presupuestos (no facturas) y quedan guardados bajo `media/`; conserva esta carpeta junto con `db.sqlite3` al respaldar la demo. La identidad del taller impresa es ficticia hasta implementar la ampliación [Identidad FT MOTORS](.scratch/identidad-ft-motors/spec.md), que la reemplaza por los datos reales en los PDF nuevos sin modificar los ya emitidos.
 
 Si el proyecto ya tenía una base local previa, aplica la migración al actualizar con `.\.venv\Scripts\python.exe manage.py migrate`. No compartas el token con el proyecto ni con terceros. Si se expone, revócalo desde BotFather y configura el nuevo valor.
 
@@ -84,9 +86,15 @@ $env:DJANGO_SECRET_KEY = 'clave-temporal-solo-para-pruebas'
 
 Las pruebas locales validan acceso web, autorización de Telegram, registro de vehículos, cálculos y correcciones de presupuestos, confirmación idempotente e historial web. No sustituyen la prueba en Telegram real.
 
-## Ampliaciones documentadas (todavía no implementadas)
+## Ampliaciones documentadas
 
-- [Asistente IA de Telegram para preparar presupuestos](.scratch/asistente-ia-presupuestos/spec.md): mensajes directos en texto, API de OpenAI, preguntas por datos faltantes, borrador recuperable y confirmación explícita. El flujo actual sigue usando comandos, botones y captura guiada.
-- [Rediseño profesional de la web](.scratch/rediseno-web/spec.md): actualización visual adaptable de acceso, inicio/listado, historial y resumen mensual. La web actual mantiene su presentación existente.
+Implementadas (distintas del trabajo base de `.scratch/demo-taller/`):
 
-Ambas ampliaciones son distintas del trabajo base documentado en `.scratch/demo-taller/`. La demo continúa ejecutándose localmente como se describe arriba. El despliegue en VPS para clientes queda para una etapa futura separada.
+- [Asistente IA de Telegram para preparar presupuestos](.scratch/asistente-ia-presupuestos/spec.md): mensajes directos en texto, API de OpenAI, preguntas por datos faltantes, borrador recuperable y confirmación explícita. Se corrigió en [correcciones de revisión final](.scratch/correcciones-revision-final/spec.md).
+- [Rediseño profesional de la web](.scratch/rediseno-web/spec.md): presentación adaptable de acceso, inicio/listado, historial y resumen mensual, con identidad ficticia "Taller Norte" y paleta azul/naranja.
+
+Todavía no implementada:
+
+- [Identidad FT MOTORS y modo oscuro](.scratch/identidad-ft-motors/spec.md): reemplaza la identidad ficticia por la real de FT MOTORS (web y PDF nuevos), restiliza el panel con la estética del taller (negro/grafito, cromo y rojo) y agrega un botón para alternar entre modo híbrido y modo oscuro. **Reemplaza** la dirección visual del rediseño web anterior. Hasta implementarse, la web y los PDF siguen mostrando la identidad ficticia actual.
+
+La demo continúa ejecutándose localmente como se describe arriba. El despliegue en VPS para clientes queda para una etapa futura separada.

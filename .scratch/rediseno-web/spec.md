@@ -4,7 +4,9 @@
 
 Dar a la aplicación web existente una estética profesional, clara y coherente, sin alterar sus operaciones administrativas ni los datos que consulta.
 
-Esta ampliación es independiente de la demo base en [Demo de presupuestos para taller](../demo-taller/spec.md) y del asistente de Telegram en [Asistente IA para presupuestos](../asistente-ia-presupuestos/spec.md). No afirma que el rediseño esté implementado.
+Esta ampliación es independiente de la demo base en [Demo de presupuestos para taller](../demo-taller/spec.md) y del asistente de Telegram en [Asistente IA para presupuestos](../asistente-ia-presupuestos/spec.md).
+
+> **Estado:** implementado (identidad ficticia "Taller Norte", paleta azul oscuro y naranja). Su dirección visual e identidad quedan **reemplazadas** por la ampliación [Identidad FT MOTORS y modo oscuro](../identidad-ft-motors/spec.md), todavía no implementada. Este documento conserva su historial original y no se reescribe.
 
 ## Alcance
 

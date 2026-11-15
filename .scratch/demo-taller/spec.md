@@ -21,6 +21,8 @@ El problema actual es que preparar cada presupuesto toma aproximadamente entre u
 
 Esta especificación describe la demo base ya construida; no incluye la futura interpretación de mensajes mediante IA ni el rediseño visual integral. Esas ampliaciones están especificadas por separado: [Asistente IA para presupuestos](../asistente-ia-presupuestos/spec.md) y [Rediseño profesional de la web](../rediseno-web/spec.md). La demo conserva su ejecución local actual. El despliegue para clientes en VPS es una etapa posterior y queda fuera de esas ampliaciones.
 
+Ampliación posterior: [Identidad FT MOTORS y modo oscuro](../identidad-ft-motors/spec.md) (todavía no implementada) reemplaza la identidad ficticia por la real del taller, en la web y en los PDF nuevos, y restiliza el panel.
+
 ## Flujo para crear un presupuesto
 
 1. El mecánico inicia un presupuesto en Telegram e identifica el vehículo por patente.
@@ -89,7 +91,7 @@ Los datos del taller que todavía no se conozcan serán ficticios para la demo. 
 ## Supuestos y datos pendientes
 
 - La mano de obra se ingresa como importe manual por reparación para ambos tipos de cliente: supuesto para simplificar la demo, no regla validada del taller.
-- Los datos de identidad del taller y el logo serán ficticios hasta recibir los reales.
+- Los datos de identidad del taller y el logo son ficticios en la demo base. Los datos reales (FT MOTORS) ya se conocen y se aplicarán a los PDF nuevos mediante la ampliación [Identidad FT MOTORS](../identidad-ft-motors/spec.md); el archivo del logo sigue pendiente y se usa un logotipo de texto provisional.
 - No se ha definido aún el formato de factura o comprobante fiscal; el PDF descrito es un presupuesto, no una factura.
 - La automatización de consultas a proveedores queda fuera de alcance; las consultas continúan por WhatsApp y la carga de precios es manual.
 - Las correcciones posteriores al presupuesto se representan con versiones vinculadas; no se sobrescribe el documento confirmado.
