@@ -4,17 +4,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#142b46">
-  <title>{% block title %}Taller Norte{% endblock %} | Taller Norte</title>
+  <meta name="theme-color" content="#0b0b0c">
+  <title>{% block title %}{{ workshop.name }}{% endblock %} | {{ workshop.name }}</title>
   <link rel="stylesheet" href="{% static 'tallerweb/site.css' %}">
 </head>
 <body>
   <a class="skip-link" href="#contenido">Saltar al contenido</a>
   <header class="site-header">
     <div class="header-inner">
-      <a class="brand" href="{% url 'dashboard' %}" aria-label="Taller Norte, inicio">
-        <span class="brand-mark" aria-hidden="true">TN</span>
-        <span><strong>Taller Norte</strong><small>Servicio automotor</small></span>
+      <a class="brand" href="{% url 'dashboard' %}" aria-label="{{ workshop.name }}, inicio">
+        <span class="brand-text">
+          {% if workshop.logo_static_path %}
+            <img class="brand-logo" src="{% static workshop.logo_static_path %}" alt="" height="40">
+          {% else %}
+            <span class="brand-mark" aria-hidden="true">{{ workshop.logo_text }}</span>
+          {% endif %}
+          <small>{{ workshop.tagline }}</small>
+        </span>
       </a>
       <nav class="site-nav" aria-label="Navegación principal">
         {% if request.user.is_authenticated %}
@@ -28,6 +34,6 @@
     </div>
   </header>
   <main id="contenido" class="page-shell">{% block content %}{% endblock %}</main>
-  <footer class="site-footer"><div class="footer-inner">Taller Norte <span>·</span> Servicio automotor</div></footer>
+  <footer class="site-footer"><div class="footer-inner">{{ workshop.name }} <span>·</span> {{ workshop.tagline }} <span>·</span> {{ workshop.address }} <span>·</span> {{ workshop.phone }}</div></footer>
 </body>
 </html>

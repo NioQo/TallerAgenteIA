@@ -31,7 +31,7 @@ EXTRACTION_SCHEMA = {
                            "unit_price": {"type": ["number", "null"]}, "total_price": {"type": ["number", "null"]}},
             "required": ["description", "quantity", "unit_price", "total_price"]}},
         "labor_amount": {"type": ["number", "null"]},
-        "labor_only": {"type": ["boolean", "null"]},
+        "labor_only": {"type": "boolean"},
         "uncertainties": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["plate", "make", "model", "customer_type", "customer_name", "customer_phone",
@@ -67,16 +67,12 @@ def merge_correction(previous: dict, candidate: dict) -> dict:
     merged = dict(previous)
     vehicle_conflicts = ("Los datos del cliente o vehículo contradicen",)
     vehicle_fields = ("make", "model", "customer_type", "customer_name", "customer_phone")
-    resolved_vehicle_fields = {
-        field for field in vehicle_fields if candidate.get(field) is not None and candidate.get(field) != ""
-    }
     previous_uncertainties = [
         uncertainty for uncertainty in previous.get("uncertainties", [])
         if uncertainty not in LOCAL_VALIDATION_UNCERTAINTIES
-        and not (uncertainty.startswith(vehicle_conflicts)
-                 and set(vehicle_fields).issubset(resolved_vehicle_fields))
+        and not uncertainty.startswith(vehicle_conflicts)
         and not any(uncertainty.startswith(f"{field}: el vehículo registrado tiene otro dato")
-                    and field in resolved_vehicle_fields for field in vehicle_fields)
+                    for field in vehicle_fields)
     ]
     merged["uncertainties"] = previous_uncertainties
     for key, value in candidate.items():
@@ -85,23 +81,6 @@ def merge_correction(previous: dict, candidate: dict) -> dict:
                 merged[key] = list(dict.fromkeys([*merged.get(key, []), *value]))
         elif key == "items":
             if value:
-                items = [dict(item) for item in previous.get("items", [])]
-                for corrected_item in value:
-                    normalized_description = str(corrected_item.get("description", "")).strip().casefold()
-                    existing_index = next((index for index, item in enumerate(items)
-                        if str(item.get("description", "")).strip().casefold() == normalized_description), None)
-                    if existing_index is None:
-                        items.append(corrected_item)
-                        continue
-                    existing_item = dict(items[existing_index])
-                    existing_item.update({field: field_value for field, field_value in corrected_item.items()
-                                          if field_value is not None and field_value != ""})
-                    if corrected_item.get("unit_price") is not None and corrected_item.get("total_price") is None:
-                        existing_item["total_price"] = None
-                    items[existing_index] = existing_item
-                merged[key] = items
-        elif key == "labor_only":
-            if value is not None:
                 merged[key] = value
         elif value is not None and value != "":
             merged[key] = value

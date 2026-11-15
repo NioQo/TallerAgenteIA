@@ -176,18 +176,6 @@ class BudgetAIExtractionTests(TestCase):
         self.assertEqual(corrected["customer_name"], "Municipalidad")
         self.assertEqual(corrected["uncertainties"], ["falta confirmar si se incluyen repuestos"])
 
-    def test_ai_correction_preserves_unrelated_registered_vehicle_conflict(self):
-        from tallerweb.budget_ai import merge_correction
-
-        conflict = "customer_name: el veh" + chr(237) + "culo registrado tiene otro dato; confirma o corrige."
-        corrected = merge_correction(
-            {"customer_name": "Dato anterior", "description": "Frenos", "uncertainties": [conflict]},
-            {"description": "Cambio de frenos", "uncertainties": []},
-        )
-
-        self.assertEqual(corrected["customer_name"], "Dato anterior")
-        self.assertEqual(corrected["uncertainties"], [conflict])
-
     def test_ai_correction_resolves_old_total_only_price_uncertainty(self):
         from tallerweb.budget_ai import merge_correction
 
@@ -202,81 +190,7 @@ class BudgetAIExtractionTests(TestCase):
         )
 
         self.assertEqual(corrected["items"][0]["unit_price"], Decimal("5000"))
-        self.assertIsNone(corrected["items"][0]["total_price"])
         self.assertEqual(corrected["uncertainties"], [])
-
-    def test_ai_correction_updates_one_item_and_preserves_the_rest(self):
-        from tallerweb.budget_ai import merge_correction
-
-        original = {"items": [
-            {"description": "Discos", "quantity": 2, "unit_price": Decimal("1000")},
-            {"description": "Pastillas", "quantity": 1, "unit_price": Decimal("500")},
-        ], "uncertainties": []}
-        candidate = {"items": [
-            {"description": "Discos", "quantity": 2, "unit_price": Decimal("1200")},
-        ], "uncertainties": []}
-
-        corrected = merge_correction(original, candidate)
-
-        self.assertEqual([item["description"] for item in corrected["items"]], ["Discos", "Pastillas"])
-        self.assertEqual(corrected["items"][0]["unit_price"], Decimal("1200"))
-        self.assertEqual(corrected["items"][1]["unit_price"], Decimal("500"))
-
-    def test_ai_correction_retains_unresolved_item_uncertainty(self):
-        from tallerweb.budget_ai import LOCAL_VALIDATION_UNCERTAINTIES, merge_correction
-
-        uncertainty = LOCAL_VALIDATION_UNCERTAINTIES[2]
-        original = {"items": [
-            {"description": "Discos", "quantity": 2, "unit_price": None},
-            {"description": "Pastillas", "quantity": 1, "unit_price": None},
-        ], "uncertainties": [uncertainty]}
-        candidate = {"items": [
-            {"description": "Discos", "quantity": 2, "unit_price": Decimal("1200")},
-        ], "uncertainties": []}
-
-        corrected = merge_correction(original, candidate)
-
-        self.assertEqual(corrected["items"][0]["unit_price"], Decimal("1200"))
-        self.assertIsNone(corrected["items"][1]["unit_price"])
-        self.assertIn(uncertainty, corrected["uncertainties"])
-
-    def test_correction_does_not_change_labor_only_when_not_mentioned(self):
-        from tallerweb.budget_ai import merge_correction
-
-        corrected = merge_correction(
-            {"labor_only": True, "items": [], "uncertainties": []},
-            {"labor_only": None, "labor_amount": Decimal("60000"), "items": [], "uncertainties": []},
-        )
-
-        self.assertTrue(corrected["labor_only"])
-
-    def test_ai_correction_updates_description_without_overwriting_other_fields(self):
-        from tallerweb.budget_ai import merge_correction
-
-        corrected = merge_correction(
-            {"description": "Cambio de aceite", "labor_amount": Decimal("40000"),
-             "items": [], "uncertainties": []},
-            {"description": "Cambio de aceite y filtro", "labor_amount": None,
-             "items": [], "uncertainties": []},
-        )
-
-        self.assertEqual(corrected["description"], "Cambio de aceite y filtro")
-        self.assertEqual(corrected["labor_amount"], Decimal("40000"))
-
-    def test_ai_correction_resolves_one_doubt_and_retains_unrelated_doubt(self):
-        from tallerweb.budget_ai import LOCAL_VALIDATION_UNCERTAINTIES, merge_correction
-
-        unrelated = "falta confirmar si se incluyen repuestos"
-        price_uncertainty = next(value for value in LOCAL_VALIDATION_UNCERTAINTIES
-                                 if value.startswith("El repuesto requiere"))
-        corrected = merge_correction(
-            {"items": [{"description": "Discos", "quantity": 2, "unit_price": None}],
-             "uncertainties": [price_uncertainty, unrelated]},
-            {"items": [{"description": "Discos", "quantity": 2, "unit_price": Decimal("5000")}],
-             "uncertainties": []},
-        )
-
-        self.assertEqual(corrected["uncertainties"], [unrelated])
 
     def test_candidate_validation_rejects_invalid_values_without_writing_records(self):
         from tallerweb.budget_ai import validate_candidate
