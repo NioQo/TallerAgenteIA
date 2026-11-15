@@ -10,6 +10,12 @@ from tallerweb.models import Budget, CompletedWork, Vehicle, WorkItem
 from datetime import date
 
 
+# Django/SQLite builds the end of a year lookup as January 1 of the next year.
+# Therefore 9998 is the largest year whose lookup bounds are representable.
+MIN_SUMMARY_YEAR = 1
+MAX_SUMMARY_YEAR = 9998
+
+
 @login_required
 def dashboard(request):
     vehicles = Vehicle.objects.all()
@@ -66,7 +72,7 @@ def monthly_summary(request):
     month, year = today.month, today.year
     try:
         month, year = int(raw_month), int(raw_year)
-        if not 1 <= month <= 12 or not 1 <= year <= 9999:
+        if not 1 <= month <= 12 or not MIN_SUMMARY_YEAR <= year <= MAX_SUMMARY_YEAR:
             raise ValueError
     except (TypeError, ValueError):
         error = "Selecciona un mes y año válidos."
@@ -85,9 +91,14 @@ def monthly_summary(request):
 
 
 @login_required
-def vehicle_detail(request, pk):
+def vehicle_detail(request, pk, closure_errors=None, closure_values=None):
     vehicle = get_object_or_404(Vehicle.objects.prefetch_related("budgets__items"), pk=pk)
-    return render(request, "vehicle_detail.html", {"vehicle": vehicle})
+    for budget in vehicle.budgets.all():
+        budget.closure_form_errors = (closure_errors or {}).get(budget.pk, {})
+        budget.closure_form_values = (closure_values or {}).get(budget.pk, {})
+    return render(request, "vehicle_detail.html", {
+        "vehicle": vehicle,
+    })
 
 
 @login_required
@@ -120,29 +131,54 @@ def complete_work(request, pk):
         if budget.status != Budget.Status.APPROVED:
             raise Http404("Solo se pueden cerrar presupuestos aprobados.")
 
+        amount_value = request.POST.get("final_amount", "")
+        errors = {}
         try:
-            amount = Decimal(request.POST.get("final_amount", ""))
+            amount = Decimal(amount_value)
             if not amount.is_finite() or amount < 0 or amount > Decimal("9999999999.99"):
                 raise InvalidOperation
         except (InvalidOperation, ValueError):
-            return redirect("vehicle_detail", pk=budget.vehicle_id)
+            amount = None
+            errors["final_amount"] = "El importe final cobrado debe ser un número válido y no negativo."
 
         descriptions = request.POST.getlist("item_description")
         quantities = request.POST.getlist("item_quantity")
         if len(descriptions) != len(quantities):
-            return redirect("vehicle_detail", pk=budget.vehicle_id)
+            errors["items"] = "Los datos de los repuestos están incompletos."
         items = []
-        try:
-            for description, quantity in zip(descriptions, quantities):
-                description = description.strip()
-                if not description:
-                    continue
+        form_items = []
+        row_count = max(len(descriptions), len(quantities))
+        for index in range(row_count):
+            description = descriptions[index] if index < len(descriptions) else ""
+            quantity = quantities[index] if index < len(quantities) else ""
+            description = description.strip()
+            description_error = ""
+            quantity_error = ""
+            if not description and not quantity.strip():
+                continue
+            if not description:
+                description_error = "Escribe el nombre del repuesto."
+            if len(description) > 200:
+                description_error = "El nombre admite hasta 200 caracteres."
+            try:
                 parsed_quantity = int(quantity)
                 if parsed_quantity <= 0 or parsed_quantity > 2147483647:
                     raise ValueError
-                items.append((description[:200], parsed_quantity))
-        except ValueError:
-            return redirect("vehicle_detail", pk=budget.vehicle_id)
+            except (ValueError, TypeError):
+                parsed_quantity = None
+                quantity_error = "La cantidad debe ser un entero positivo."
+            if description_error or quantity_error:
+                errors[f"item_{index}"] = True
+            else:
+                items.append((description, parsed_quantity))
+            form_items.append({"description": description, "quantity": quantity,
+                               "description_error": description_error,
+                               "quantity_error": quantity_error})
+
+        if errors:
+            return vehicle_detail(request, budget.vehicle_id, {budget.pk: errors}, {
+                budget.pk: {"final_amount": amount_value, "rows": form_items}
+            })
 
         work = CompletedWork.objects.create(budget=budget, final_amount=amount)
         WorkItem.objects.bulk_create([WorkItem(work=work, description=name, quantity=quantity)

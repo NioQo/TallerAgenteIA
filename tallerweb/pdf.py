@@ -1,3 +1,4 @@
+from html import escape
 from io import BytesIO
 
 from reportlab.lib import colors
@@ -5,21 +6,10 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import Flowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from tallerweb import identity
 
-class DemoLogo(Flowable):
-    """Small vector wordmark; explicitly fictional until workshop details arrive."""
-    def __init__(self):
-        super().__init__()
-        self.width, self.height = 25*mm, 17*mm
-
-    def draw(self):
-        self.canv.setFillColor(colors.HexColor("#243b53"))
-        self.canv.roundRect(0, 0, self.width, self.height, 3*mm, fill=1, stroke=0)
-        self.canv.setFillColor(colors.white)
-        self.canv.setFont("Helvetica-Bold", 17)
-        self.canv.drawCentredString(self.width/2, 5*mm, "TD")
 
 
 def budget_pdf(budget):
@@ -29,17 +19,33 @@ def budget_pdf(budget):
                             topMargin=18*mm, bottomMargin=18*mm)
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="CenterTitle", parent=styles["Title"], alignment=TA_CENTER))
-    story = [DemoLogo(), Paragraph("TALLER DEMO · Servicio Automotor", styles["Heading2"]),
-             Paragraph("Av. del Taller 123 · Buenos Aires · Tel. (011) 4000-0000", styles["Normal"]),
-             Spacer(1, 8*mm), Paragraph("PRESUPUESTO — NO ES FACTURA", styles["CenterTitle"]),
-             Paragraph(f"Número: {budget.number}　　Fecha: {budget.created_at:%d/%m/%Y}", styles["Normal"]),
-             Spacer(1, 5*mm),
-             Paragraph(f"Cliente: {budget.vehicle.customer_name} ({budget.vehicle.get_customer_type_display()})", styles["Normal"]),
-             Paragraph(f"Vehículo: {budget.vehicle.plate} · {budget.vehicle.make} {budget.vehicle.model}", styles["Normal"]),
-             Spacer(1, 5*mm), Paragraph(f"Trabajo: {budget.description}", styles["Normal"]), Spacer(1, 4*mm)]
+    story = [
+        Paragraph(escape(identity.NAME), styles["Heading2"]),
+        Paragraph(f"{escape(identity.ADDRESS)} · Tel. {escape(identity.PHONE)}", styles["Normal"]),
+        Spacer(1, 8*mm),
+        Paragraph("PRESUPUESTO — NO ES FACTURA", styles["CenterTitle"]),
+        Paragraph(
+            f"Número: {escape(str(budget.number))}　　Fecha: {budget.created_at:%d/%m/%Y}",
+            styles["Normal"],
+        ),
+        Spacer(1, 5*mm),
+        Paragraph(
+            f"Cliente: {escape(budget.vehicle.customer_name)} "
+            f"({escape(budget.vehicle.get_customer_type_display())})",
+            styles["Normal"],
+        ),
+        Paragraph(
+            f"Vehículo: {escape(budget.vehicle.plate)} · {escape(budget.vehicle.make)} "
+            f"{escape(budget.vehicle.model)}",
+            styles["Normal"],
+        ),
+        Spacer(1, 5*mm),
+        Paragraph(f"Trabajo: {escape(budget.description)}", styles["Normal"]),
+        Spacer(1, 4*mm),
+    ]
     data = [["Repuesto", "Cantidad", "Precio unitario", "Importe"]]
     for item in budget.items.all():
-        data.append([Paragraph(item.description, styles["Normal"]), str(item.quantity),
+        data.append([Paragraph(escape(item.description), styles["Normal"]), str(item.quantity),
                      f"ARS {item.unit_price:,.2f}", f"ARS {item.subtotal:,.2f}"])
     data.extend([["Mano de obra", "", "", f"ARS {budget.labor_amount:,.2f}"],
                  ["TOTAL ARS", "", "", f"ARS {budget.total:,.2f}"]])

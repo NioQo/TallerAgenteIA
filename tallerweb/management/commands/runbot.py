@@ -230,8 +230,8 @@ def pending_budgets():
 
 
 @sync_to_async
-def get_budget_with_items(number):
-    return Budget.objects.select_related("vehicle").prefetch_related("items").filter(number=number).first()
+def get_budget_with_items(budget_id):
+    return Budget.objects.select_related("vehicle").prefetch_related("items").filter(pk=budget_id).first()
 
 
 @sync_to_async
@@ -291,11 +291,10 @@ async def start_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     )
         required = ("plate", "make", "model", "customer_type", "customer_name", "customer_phone",
                     "description", "labor_amount")
-        incomplete = any(not checked.get(field) for field in required)
         invalid_items = any(not item.get("description", "").strip() or not item.get("quantity")
                             or item.get("unit_price") is None for item in checked.get("items", []))
-        if (incomplete or invalid_items or (not checked.get("items") and not checked.get("labor_only")
-                                            or checked.get("uncertainties"))):
+        if invalid_items or (not checked.get("items") and not checked.get("labor_only")
+                            or checked.get("uncertainties")):
             context.user_data["ai_budget"] = checked
             await show_ai_budget_draft(update.effective_message, checked)
             return
@@ -305,12 +304,10 @@ async def start_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if ai_draft:
         vehicle = await find_vehicle(normalize_plate(ai_draft.get("plate", ""))) if ai_draft.get("plate") else None
         candidate_vehicle = None
-        if not vehicle and all(ai_draft.get(key) for key in (
-            "plate", "make", "model", "customer_type", "customer_name", "customer_phone"
-        )):
+        if not vehicle:
             candidate_vehicle = {key: ai_draft[key] for key in (
                 "plate", "make", "model", "customer_type", "customer_name", "customer_phone"
-            )}
+            ) if ai_draft.get(key)}
         if vehicle:
             guided_draft.update({
                 "vehicle": vehicle,
@@ -336,13 +333,38 @@ async def start_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 ],
             })
         guided_draft["ai_source_draft"] = ai_draft
+        if ai_draft.get("revision_of"):
+            guided_draft["revision_of"] = ai_draft["revision_of"]
+        guided_draft["labor_only"] = bool(ai_draft.get("labor_only"))
+        guided_draft["ai_catalog_reviews"] = ai_draft.get("ai_catalog_reviews", [])
     context.user_data["budget"] = guided_draft
     context.user_data["budget"]["from_ai_draft"] = resumed_ai_draft
-    context.user_data["budget_step"] = BUDGET_VEHICLE
-    if (guided_draft.get("vehicle") or guided_draft.get("vehicle_data")) and guided_draft.get("description") and guided_draft.get("labor_amount") is not None:
+    if guided_draft.get("vehicle") or guided_draft.get("vehicle_data"):
         context.user_data["budget_step"] = None
-        await show_budget_summary(update.effective_message, guided_draft)
+        vehicle_data = guided_draft.get("vehicle_data") or {}
+        missing_vehicle = next((field for field in ("plate", "make", "model", "customer_type", "customer_name", "customer_phone")
+                                if not vehicle_data.get(field)), None) if not guided_draft.get("vehicle") else None
+        if missing_vehicle:
+            guided_draft["vehicle_field"] = missing_vehicle
+            context.user_data["budget_step"] = BUDGET_VEHICLE
+            prompts = {"plate": "Escribe la patente del vehículo.", "make": "Escribe la marca del vehículo.",
+                       "model": "Escribe el modelo del vehículo.", "customer_type": "Indica tipo de cliente: Municipalidad o particular.",
+                       "customer_name": "Escribe el nombre del cliente.", "customer_phone": "Escribe el teléfono del cliente."}
+            await update.effective_message.reply_text(prompts[missing_vehicle])
+            return
+        if not guided_draft.get("description"):
+            context.user_data["budget_step"] = BUDGET_DESCRIPTION
+            await update.effective_message.reply_text("Escribe la descripción del trabajo.")
+        elif not guided_draft.get("items") and not ai_draft.get("labor_only"):
+            context.user_data["budget_step"] = BUDGET_ITEM_NAME
+            await update.effective_message.reply_text("Escribe el nombre del primer repuesto, o usa /listo si es solo mano de obra.")
+        elif guided_draft.get("labor_amount") is None:
+            context.user_data["budget_step"] = BUDGET_LABOR
+            await update.effective_message.reply_text("Escribe el importe total de mano de obra en ARS.")
+        else:
+            await show_budget_summary(update.effective_message, guided_draft)
     else:
+        context.user_data["budget_step"] = BUDGET_VEHICLE
         await update.effective_message.reply_text("Escribe la patente del vehículo para el presupuesto. Usa /cancelar para salir.")
 
 
@@ -402,6 +424,39 @@ async def budget_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             draft.pop("suggested_price", None)
             await query.edit_message_text("Escribe el precio unitario elegido en ARS; la sugerencia no es una cotización actual.")
+        return
+    if action.startswith("ai-catalog:"):
+        try:
+            _, decision, raw_index = action.split(":", 2)
+            index = int(raw_index)
+            reviews = draft["ai_catalog_reviews"]
+            review = reviews[index]
+            item = draft["items"][review["item_index"]]
+        except (KeyError, IndexError, TypeError, ValueError):
+            await query.edit_message_text("Esta sugerencia ya no está disponible. Inicia un nuevo presupuesto.")
+            return
+        if decision == "accept":
+            item["unit_price"] = review["suggested_price"]
+            item["subtotal"] = money(item["unit_price"] * item["quantity"])
+        elif decision == "keep":
+            if review["extracted_price"] is None:
+                await query.edit_message_text("No hay un precio informado para mantener. Elige la sugerencia o reemplázala.")
+                return
+            item["unit_price"] = review["extracted_price"]
+            item["subtotal"] = money(item["unit_price"] * item["quantity"])
+        elif decision == "replace":
+            draft["ai_catalog_replace_index"] = review["item_index"]
+            context.user_data["budget_step"] = BUDGET_ITEM_PRICE
+            await query.edit_message_text("Escribe el precio unitario que deseas usar. La referencia histórica no es una cotización actual.")
+            return
+        else:
+            await query.edit_message_text("Esta opción no es válida.")
+            return
+        reviews.pop(index)
+        if reviews:
+            await show_ai_catalog_review(query.message, draft, index=0)
+        else:
+            await show_budget_summary(query.message, draft)
         return
     if action.startswith("confirm:"):
         key = action.split(":", 1)[1]
@@ -478,6 +533,9 @@ def budget_total(draft):
 
 
 async def show_budget_summary(message, draft):
+    if draft.get("ai_catalog_reviews"):
+        await show_ai_catalog_review(message, draft)
+        return
     try:
         validated = validate_budget_data({
             "vehicle": draft.get("vehicle"), "vehicle_data": draft.get("vehicle_data"),
@@ -517,9 +575,13 @@ async def budget_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.effective_message.reply_text("Esta cuenta no está autorizada para operar el taller.")
         return
     draft = context.user_data.get("budget")
-    if not draft or context.user_data.get("budget_step") != BUDGET_ITEM_NAME or not draft["items"]:
+    if not draft or context.user_data.get("budget_step") != BUDGET_ITEM_NAME:
         await update.effective_message.reply_text("Agrega al menos un repuesto antes de terminar. Usa /presupuesto para empezar.")
         return
+    if not draft.get("items"):
+        # With no part rows, /listo is the operator's explicit confirmation
+        # that this budget covers labor only.
+        draft["labor_only"] = True
     context.user_data["budget_step"] = BUDGET_LABOR
     await update.effective_message.reply_text("Escribe el importe total de mano de obra en ARS.")
 
@@ -535,6 +597,15 @@ async def cancel_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 @sync_to_async
 def find_budget(number):
     return Budget.objects.filter(number=number).first()
+
+
+@sync_to_async
+def get_revisable_budget(number):
+    budget = Budget.objects.select_related("vehicle").prefetch_related("items").filter(number=number).first()
+    if (not budget or budget.status != Budget.Status.PENDING
+            or Budget.objects.filter(previous_version=budget).exists()):
+        return None
+    return budget
 
 
 async def resend_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -582,6 +653,44 @@ async def collect_budget_field(update: Update, context: ContextTypes.DEFAULT_TYP
             await message.reply_text("Escribe la cantidad (número entero mayor que cero).")
         return
     if step == BUDGET_VEHICLE:
+        if draft.get("vehicle_data") is not None:
+            field = draft.get("vehicle_field")
+            if field == "customer_type":
+                choices = {"municipalidad": Vehicle.CustomerType.MUNICIPALITY,
+                           "particular": Vehicle.CustomerType.PRIVATE}
+                answer = value.casefold()
+                if answer not in choices:
+                    await message.reply_text("Indica Municipalidad o Particular para continuar.")
+                    return
+                draft["vehicle_data"][field] = choices[answer]
+            else:
+                if not value:
+                    await message.reply_text("El dato es obligatorio. Inténtalo de nuevo.")
+                    return
+                draft["vehicle_data"][field] = normalize_plate(value) if field == "plate" else value
+            next_field = next((name for name in ("plate", "make", "model", "customer_type", "customer_name", "customer_phone")
+                               if not draft["vehicle_data"].get(name)), None)
+            if next_field:
+                draft["vehicle_field"] = next_field
+                prompts = {"plate": "Escribe la patente del vehículo.", "make": "Escribe la marca del vehículo.",
+                           "model": "Escribe el modelo del vehículo.", "customer_type": "Indica tipo de cliente: Municipalidad o particular.",
+                           "customer_name": "Escribe el nombre del cliente.", "customer_phone": "Escribe el teléfono del cliente."}
+                await message.reply_text(prompts[next_field])
+                return
+            draft.pop("vehicle_field", None)
+            if not draft.get("description"):
+                context.user_data["budget_step"] = BUDGET_DESCRIPTION
+                await message.reply_text("Escribe la descripción del trabajo.")
+            elif not draft.get("items") and not draft.get("labor_only"):
+                context.user_data["budget_step"] = BUDGET_ITEM_NAME
+                await message.reply_text("Escribe el nombre del primer repuesto o usa /listo si es solo mano de obra.")
+            elif draft.get("labor_amount") is None:
+                context.user_data["budget_step"] = BUDGET_LABOR
+                await message.reply_text("Escribe el importe total de mano de obra en ARS.")
+            else:
+                context.user_data["budget_step"] = None
+                await show_budget_summary(message, draft)
+            return
         vehicle = await find_vehicle(normalize_plate(value))
         if not vehicle:
             await message.reply_text("No encuentro esa patente. Registra primero el vehículo con /vehiculo.")
@@ -621,12 +730,24 @@ async def collect_budget_field(update: Update, context: ContextTypes.DEFAULT_TYP
             await message.reply_text("Escribe un importe numérico válido y no negativo, con hasta dos decimales. Inténtalo de nuevo.")
             return
         if step == BUDGET_ITEM_PRICE:
+            if "ai_catalog_replace_index" in draft:
+                index = draft.pop("ai_catalog_replace_index")
+                item = draft["items"][index]
+                item["unit_price"] = amount
+                item["subtotal"] = money(amount * item["quantity"])
+                draft["ai_catalog_reviews"].pop(0)
+                context.user_data["budget_step"] = None
+                if draft["ai_catalog_reviews"]:
+                    await show_ai_catalog_review(message, draft)
+                else:
+                    await show_budget_summary(message, draft)
+                return
             await add_budget_item(draft, amount)
             context.user_data["budget_step"] = BUDGET_ITEM_NAME
             await message.reply_text("Repuesto agregado. Escribe otro nombre o /listo para continuar.")
         else:
-            if not draft.get("description") or not draft["items"]:
-                await message.reply_text("Falta la descripción o al menos un repuesto. Usa /presupuesto para comenzar de nuevo.")
+            if not draft.get("description") or (not draft["items"] and not draft.get("labor_only")):
+                await message.reply_text("Falta la descripción o confirmar que es solo mano de obra.")
                 return
             draft["labor_amount"] = amount
             context.user_data["budget_step"] = None
@@ -700,6 +821,29 @@ async def collect_vehicle_field(update: Update, context: ContextTypes.DEFAULT_TY
     if step is None:
         if settings.OPENAI_ENABLED and settings.OPENAI_API_KEY:
             if await offer_draft_actions(message):
+                return
+            revision_number = re.search(r"\bP-\d{6}\b", message.text or "", re.IGNORECASE)
+            if revision_number:
+                budget = await get_revisable_budget(revision_number.group().upper())
+                if not budget:
+                    await message.reply_text(
+                        "No encuentro un presupuesto vigente pendiente con ese número. "
+                        "Solo se pueden corregir versiones pendientes actuales."
+                    )
+                    return
+                context.user_data.clear()
+                context.user_data["ai_budget"] = {
+                    "plate": budget.vehicle.plate, "make": budget.vehicle.make,
+                    "model": budget.vehicle.model, "customer_type": budget.vehicle.customer_type,
+                    "customer_name": budget.vehicle.customer_name, "customer_phone": budget.vehicle.customer_phone,
+                    "description": budget.description,
+                    "items": [{"description": item.description, "quantity": item.quantity,
+                               "unit_price": item.unit_price, "total_price": None}
+                              for item in budget.items.all()],
+                    "labor_amount": budget.labor_amount, "labor_only": not budget.items.exists(),
+                    "uncertainties": [], "revision_of": budget.pk,
+                }
+                await collect_ai_budget(update, context)
                 return
             context.user_data["ai_budget"] = {}
             await collect_ai_budget(update, context)
@@ -777,17 +921,77 @@ async def collect_ai_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     draft = context.user_data["ai_budget"]
     try:
         # Only the current message is transmitted; prior draft data remains local.
-        candidate = await extract_budget(message.text or "", previous=draft)
+        candidate = await extract_budget(message.text or "")
     except Exception:
         await message.reply_text(
             "No pude interpretar el mensaje con IA. El borrador sigue intacto; puedes responder de nuevo "
-            "o usar /cancelar y continuar con /presupuesto."
+            "o enviar /presupuesto para continuar manualmente con este borrador."
         )
         return
     draft = merge_correction(draft, candidate)
     context.user_data["ai_budget"] = draft
     await save_active_draft(draft)
-    await show_ai_budget_draft(message, draft)
+    reviews = await find_ai_catalog_reviews(draft)
+    for review in reviews:
+        item = draft["items"][review["item_index"]]
+        if item.get("unit_price") is None:
+            item["unit_price"] = review["suggested_price"]
+            item["total_price"] = None
+    if reviews:
+        draft["uncertainties"] = [value for value in draft.get("uncertainties", [])
+                                  if value != "El repuesto requiere un precio unitario explícito; no se calcula desde un precio total."]
+        draft["uncertainties"] = validate_candidate(draft)["uncertainties"]
+    if await ai_budget_is_complete(draft):
+        # A complete natural-language request enters the existing confirmation
+        # flow directly; no second /presupuesto command is needed.
+        draft["ai_catalog_reviews"] = reviews
+        context.user_data["ai_budget"] = draft
+        await start_budget(update, context)
+    else:
+        await show_ai_budget_draft(message, draft)
+
+
+async def ai_budget_is_complete(draft):
+    """Return whether an AI draft can be presented as a budget for confirmation."""
+    checked = validate_candidate(draft)
+    required = ("plate", "make", "model", "customer_type", "customer_name",
+                "customer_phone", "description", "labor_amount")
+    if any(checked.get(field) is None or checked.get(field) == "" for field in required) or checked.get("uncertainties"):
+        return False
+    items = checked.get("items", [])
+    if not items and not checked.get("labor_only"):
+        return False
+    return all(item.get("description", "").strip() and item.get("quantity")
+               and item.get("unit_price") is not None for item in items)
+
+
+async def find_ai_catalog_reviews(draft):
+    """Collect historical references for matching parts; never persist suggestions."""
+    reviews = []
+    for index, item in enumerate(draft.get("items", [])):
+        part = await find_catalog_part(item["description"])
+        if part:
+            reviews.append({"item_index": index, "suggested_price": part.suggested_unit_price,
+                            "extracted_price": item.get("unit_price")})
+    return reviews
+
+
+async def show_ai_catalog_review(message, draft, index=0):
+    review = draft["ai_catalog_reviews"][index]
+    item = draft["items"][review["item_index"]]
+    historical = format_money(review["suggested_price"])
+    informed = (f"Precio expresado en el mensaje: {format_money(review['extracted_price'])}. "
+                if review["extracted_price"] is not None else "")
+    await message.reply_text(
+        f"Referencia histórica para {item['description']}: {historical}. "
+        f"Es un dato anterior, no una cotización actual. {informed}Elige el precio a usar:",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Usar histórico", callback_data=f"budget:ai-catalog:accept:{index}"),
+            *([InlineKeyboardButton("Mantener informado", callback_data=f"budget:ai-catalog:keep:{index}")]
+              if review["extracted_price"] is not None else []),
+            InlineKeyboardButton("Reemplazar", callback_data=f"budget:ai-catalog:replace:{index}"),
+        ]]),
+    )
 
 
 async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -835,7 +1039,7 @@ async def show_ai_budget_draft(message, draft):
                        ("customer_type", "tipo de cliente (Municipalidad o particular)"),
                        ("customer_name", "nombre del cliente"), ("customer_phone", "teléfono del cliente"),
                        ("description", "descripción del trabajo"), ("labor_amount", "importe total de mano de obra")):
-        if not draft.get(key):
+        if draft.get(key) is None or draft.get(key) == "":
             missing.append(label)
     if not draft.get("items") and not draft.get("labor_only"):
         missing.append("repuestos o confirmar que es solo mano de obra")
@@ -847,20 +1051,37 @@ async def show_ai_budget_draft(message, draft):
     if draft.get("items") and draft.get("labor_only"):
         missing.append("aclarar si se incluyen repuestos o el trabajo es solo mano de obra")
     missing.extend(draft.get("uncertainties", []))
-    if missing:
-        await message.reply_text("Para completar el borrador necesito: " + "; ".join(dict.fromkeys(missing)) + ".")
-        return
     item_lines = []
+    parts_subtotal = Decimal("0")
     for item in draft.get("items", []):
-        if item.get("unit_price") is not None:
-            item_lines.append(f"{item['description']} · {item['quantity']} × ARS {item['unit_price']}")
+        if item.get("unit_price") is not None and item.get("quantity"):
+            subtotal = money(Decimal(str(item["unit_price"])) * int(item["quantity"]))
+            parts_subtotal += subtotal
+            item_lines.append(
+                f"{item['description']}: {item['quantity']} × {format_money(item['unit_price'])} "
+                f"= {format_money(subtotal)}"
+            )
         else:
-            # Total-only prices cannot be safely converted to a unit price here.
-            item_lines.append(f"{item['description']} · total informado ARS {item['total_price']} (requiere desglose unitario)")
-    lines = ["Borrador (sin guardar):", f"Patente: {draft['plate']} · {draft['make']} {draft['model']}",
-             f"Cliente: {draft['customer_name']} · {draft['customer_phone']}", f"Trabajo: {draft['description']}",
-             *item_lines, f"Mano de obra: ARS {draft['labor_amount']}",
-             "Revisa los datos y continúa con el flujo guiado /presupuesto para confirmar."]
+            quantity = item.get("quantity") if item.get("quantity") is not None else "pendiente"
+            price = format_money(item["unit_price"]) if item.get("unit_price") is not None else "pendiente"
+            item_lines.append(f"{item.get('description') or 'Repuesto pendiente'}: {quantity} × {price} = pendiente")
+
+    lines = [
+        "Borrador (sin guardar):",
+        f"Vehículo: {draft.get('plate') or 'pendiente'} · {draft.get('make') or 'pendiente'} {draft.get('model') or 'pendiente'}",
+        f"Cliente: {draft.get('customer_name') or 'pendiente'}",
+        draft.get("description") or "Trabajo pendiente",
+        *item_lines,
+        f"Mano de obra: {format_money(draft['labor_amount'])}" if draft.get("labor_amount") is not None
+        else "Mano de obra: pendiente",
+    ]
+    if missing:
+        lines.append("TOTAL ESTIMADO: pendiente (faltan datos o aclaraciones).")
+        lines.append("Para completar el borrador necesito: " + "; ".join(dict.fromkeys(missing)) + ".")
+    else:
+        total = money(parts_subtotal + Decimal(str(draft["labor_amount"])))
+        lines.append(f"TOTAL ESTIMADO: {format_money(total)}")
+        lines.append("Puedes responder con correcciones en lenguaje natural o usar /presupuesto para revisar y confirmar.")
     await message.reply_text("\n".join(lines))
 
 
